@@ -1,1 +1,4 @@
 /target
+/dist
+/.build
+/.spc-cache
