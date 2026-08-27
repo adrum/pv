@@ -101,6 +101,9 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
             sha256: expected.to_string(),
             url: artifact.url.clone(),
             installed_at: installs::now_unix(),
+            // Recorded from the tree as extracted, so doctor can later speak
+            // about what is installed rather than about the tarball it came in.
+            files: installs::hash_tree(&version)?,
         },
     )?;
 

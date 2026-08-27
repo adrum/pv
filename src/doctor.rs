@@ -192,9 +192,29 @@ fn install_checks(installed: &[crate::version::Version]) -> Result<Vec<Finding>>
                 ),
             )),
             Some(record) => {
-                // The recorded hash is the tarball's, so it is checked against
-                // the cached tarball when that is still around. A mismatch
-                // means the cache was tampered with or corrupted.
+                // What is installed, checked against what was installed. This
+                // is the check that speaks about the tree on disk: a modified
+                // bin/php verifies perfectly against the manifest, because the
+                // manifest describes a tarball.
+                let changed = installs::changed_files(version, &record)?;
+                if !changed.is_empty() {
+                    findings.push(Finding::problem(
+                        format!("{version}: changed since install — {}", changed.join(", ")),
+                        format!("reinstall with `pv install {version} --force`"),
+                    ));
+                }
+                if record.files.is_empty() {
+                    findings.push(Finding::warn(
+                        format!("{version}: installed before pv recorded file hashes"),
+                        format!(
+                            "pv cannot tell whether this tree has been modified — \
+                             `pv install {version} --force` records them"
+                        ),
+                    ));
+                }
+
+                // The recorded artifact hash is the tarball's, so it is checked
+                // against the cached tarball while that is still around.
                 let cached = paths::cache_dir()?.join(&record.file);
                 if cached.is_file() && net::sha256_file(&cached)? != record.sha256 {
                     findings.push(Finding::problem(
