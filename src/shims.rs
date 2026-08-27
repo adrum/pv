@@ -166,6 +166,85 @@ pub fn init_snippet(shell: &str, shims: &Path) -> String {
     }
 }
 
+/// The optional `cd`-time hook, appended to `pv init <shell> --hook`.
+///
+/// Correctness never depends on this. The shims already resolve the right PHP
+/// for every process, interactive or not; the hook only moves resolution from
+/// per-command to per-directory, and gives the shell a chance to say what it
+/// switched to. It is opt-in for that reason — a shell hook that goes wrong
+/// takes the whole shell with it, and nothing here needs it to be right.
+///
+/// It exports `PV_PHP_VERSION`, which outranks every file-based rule, and that
+/// makes three things load-bearing.
+///
+/// It must run once at startup, not only on `cd`: a new shell inherits an
+/// exported value from whatever directory its parent was in, and without an
+/// initial run that stale value silently outranks the new shell's own
+/// `.php-version`.
+///
+/// It must clear the variable when nothing pins a version, so the fallback
+/// stays dynamic instead of freezing at whatever resolved once.
+///
+/// And it must not read back what it wrote. Resolution treats the environment
+/// as the highest-priority pin, so a hook that resolves with its own export
+/// still set sees `Environment` every time and re-pins the same value forever
+/// — leave a pinned directory and the version follows you out. The hook
+/// therefore tracks what it set in `_PV_HOOK_SET` and clears its own export
+/// before resolving. A value it does not recognize was set by hand and is left
+/// strictly alone: an explicit `PV_PHP_VERSION=8.2` in the environment
+/// outranks pv, which is the whole point of an override.
+pub fn hook_snippet(shell: &str, pv: &Path) -> String {
+    let pv = pv.to_string_lossy().to_string();
+    match shell {
+        "fish" => format!(
+            "\n# pv: switch on cd (optional — the shims work without it)\n\
+             function _pv_hook --on-variable PWD\n    \
+                 if set -q PV_PHP_VERSION\n        \
+                     if test \"$PV_PHP_VERSION\" != \"$_PV_HOOK_SET\"\n            \
+                         return\n        \
+                     end\n    \
+                 end\n    \
+                 set -e PV_PHP_VERSION\n    \
+                 set -l resolved ({pv} resolve --pinned-only 2>/dev/null)\n    \
+                 if test -n \"$resolved\"\n        \
+                     set -gx PV_PHP_VERSION $resolved\n        \
+                     set -gx _PV_HOOK_SET $resolved\n    \
+                 else\n        \
+                     set -e _PV_HOOK_SET\n    \
+                 end\n\
+             end\n\
+             _pv_hook\n"
+        ),
+        _ => format!(
+            "\n# pv: switch on cd (optional — the shims work without it)\n\
+             _pv_hook() {{\n  \
+                 if [ -n \"${{PV_PHP_VERSION-}}\" ] && \
+                    [ \"${{PV_PHP_VERSION-}}\" != \"${{_PV_HOOK_SET-}}\" ]; then\n    \
+                     return 0\n  \
+                 fi\n  \
+                 unset PV_PHP_VERSION\n  \
+                 _pv_resolved=\"$('{pv}' resolve --pinned-only 2>/dev/null)\"\n  \
+                 if [ -n \"$_pv_resolved\" ]; then\n    \
+                     PV_PHP_VERSION=\"$_pv_resolved\"; export PV_PHP_VERSION\n    \
+                     _PV_HOOK_SET=\"$_pv_resolved\"; export _PV_HOOK_SET\n  \
+                 else\n    \
+                     unset _PV_HOOK_SET\n  \
+                 fi\n  \
+                 unset _pv_resolved\n\
+             }}\n\
+             if [ -n \"${{ZSH_VERSION-}}\" ]; then\n  \
+                 autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook chpwd _pv_hook\n\
+             elif [ -n \"${{BASH_VERSION-}}\" ]; then\n  \
+                 case \"${{PROMPT_COMMAND-}}\" in\n    \
+                     *_pv_hook*) ;;\n    \
+                     *) PROMPT_COMMAND=\"_pv_hook${{PROMPT_COMMAND:+;$PROMPT_COMMAND}}\" ;;\n  \
+                 esac\n\
+             fi\n\
+             _pv_hook\n"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,6 +280,27 @@ mod tests {
         assert!(is_pv_shim(&ours).unwrap());
         assert!(!is_pv_shim(&theirs).unwrap());
         assert!(!is_pv_shim(&dir.path().join("missing")).unwrap());
+    }
+
+    #[test]
+    fn the_hook_runs_at_startup_and_clears_a_stale_override() {
+        for shell in ["zsh", "fish"] {
+            let hook = hook_snippet(shell, Path::new("/opt/pv"));
+            assert!(
+                hook.trim_end().ends_with("_pv_hook"),
+                "{shell}: must run once at startup, or an inherited \
+                 PV_PHP_VERSION outranks the new shell's own .php-version"
+            );
+            assert!(
+                hook.contains("unset PV_PHP_VERSION") || hook.contains("set -e PV_PHP_VERSION"),
+                "{shell}: must clear the override when nothing pins a version"
+            );
+            assert!(
+                hook.contains("_PV_HOOK_SET"),
+                "{shell}: must track what it set, or resolution reads back its own \
+                 export as a pin and the version follows you out of the directory"
+            );
+        }
     }
 
     #[test]

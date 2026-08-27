@@ -78,11 +78,23 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
+    /// Print the version that would be used here, and where it came from
+    Resolve {
+        /// Print nothing unless a file or the environment pins a version
+        #[arg(long)]
+        pinned_only: bool,
+        /// Also print what chose it
+        #[arg(long)]
+        source: bool,
+    },
     /// Print shell setup for PATH (add `eval "$(pv init zsh)"` to your profile)
     Init {
         /// zsh, bash, sh or fish
         #[arg(default_value = "zsh")]
         shell: String,
+        /// Also emit an optional hook that switches version on cd
+        #[arg(long)]
+        hook: bool,
     },
     /// Regenerate the shims
     Rehash,
@@ -133,7 +145,11 @@ fn run() -> Result<ExitCode> {
         Command::Default { version } => cmd_default(version.as_deref()),
         Command::Which { command } => cmd_which(&command),
         Command::Run { command, args } => cmd_run(&command, &args),
-        Command::Init { shell } => cmd_init(&shell),
+        Command::Resolve {
+            pinned_only,
+            source,
+        } => cmd_resolve(pinned_only, source),
+        Command::Init { shell, hook } => cmd_init(&shell, hook),
         Command::Rehash => cmd_rehash(),
         Command::Doctor => cmd_doctor(),
         Command::Zelf(SelfCommand::Update { force }) => {
@@ -366,12 +382,50 @@ fn binary_or_explain(version: &Version, command: &str) -> Result<PathBuf> {
     )
 }
 
-fn cmd_init(shell: &str) -> Result<ExitCode> {
+/// Print the resolved version for scripts and for the shell hook.
+///
+/// Read-only, like `which`. `--pinned-only` prints nothing when the version
+/// comes from a fallback rather than a pin: the hook exports what this prints,
+/// and exporting a fallback would freeze it, outranking the `.php-version` of
+/// every directory the shell later moves into.
+fn cmd_resolve(pinned_only: bool, source: bool) -> Result<ExitCode> {
+    let resolution = match current_resolution() {
+        Ok(resolution) => resolution,
+        // Nothing resolves here. For the hook that means "clear the override",
+        // which is a silent success rather than an error the shell must cope
+        // with on every prompt.
+        Err(_) if pinned_only => return Ok(ExitCode::SUCCESS),
+        Err(err) => return Err(err),
+    };
+
+    let pinned = matches!(
+        resolution.source,
+        resolve::Source::Environment
+            | resolve::Source::VersionFile(_)
+            | resolve::Source::Composer(_, _)
+    );
+    if pinned_only && !pinned {
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if source {
+        println!("{} ({})", resolution.version, resolution.source);
+    } else {
+        println!("{}", resolution.version);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_init(shell: &str, hook: bool) -> Result<ExitCode> {
     match shell {
         "zsh" | "bash" | "sh" | "fish" => {}
         other => bail!("pv has no init snippet for `{other}` — try zsh, bash, sh or fish"),
     }
     print!("{}", shims::init_snippet(shell, &paths::shims_dir()?));
+    if hook {
+        let pv = std::env::current_exe().context("could not determine pv's own path")?;
+        print!("{}", shims::hook_snippet(shell, &pv));
+    }
     Ok(ExitCode::SUCCESS)
 }
 

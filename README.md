@@ -46,7 +46,8 @@ eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 | `pv default <version>` | version used when nothing pins one |
 | `pv which [command]` | the binary that would run here, and nothing else |
 | `pv run <command> …` | run a command under the resolved version |
-| `pv init <shell>` | shell setup for `PATH` |
+| `pv resolve` | the version that would be used here (`--source` says why) |
+| `pv init <shell>` | shell setup for `PATH` (`--hook` adds `cd`-time switching) |
 | `pv rehash` | regenerate the shims |
 | `pv doctor` | check the installation |
 | `pv self update` | replace this binary with the newest build |
@@ -74,6 +75,22 @@ directory is broken, whatever its error message says.
 Set `strategy = "local"` in `~/.pv/config.toml` to stop the ancestor walk at
 the current directory; the default is `recursive`, which is what monorepos
 want.
+
+### Switching on `cd`
+
+Optional, and only ever a convenience:
+
+```sh
+eval "$(pv init zsh --hook)"
+```
+
+The hook exports `PV_PHP_VERSION` when you enter a directory that pins one, and
+clears it when you leave. Correctness does not depend on it — the shims resolve
+every process, interactive or not — so if it misbehaves, drop the `--hook` and
+nothing else changes.
+
+An explicit `PV_PHP_VERSION` you set yourself is left alone: the hook only ever
+manages the value it set.
 
 ## Which extensions do I get
 
