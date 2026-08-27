@@ -1,0 +1,119 @@
+name: release-pv
+
+# Cut a pv release: build the client for every platform, publish the tarballs,
+# and add them to the runtime manifest's `pv` section so `pv self update` can
+# find them.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and publish'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  RUNTIMES_TAG: runtimes
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+          - platform: darwin-x86_64
+            runner: macos-13
+            target: x86_64-apple-darwin
+          - platform: linux-x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-musl
+          - platform: linux-arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-musl
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      # musl on Linux keeps the client a genuinely dependency-free binary: no
+      # glibc floor, so it runs on distributions older than the runner.
+      - if: startsWith(matrix.target, 'x86_64-unknown-linux')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - if: startsWith(matrix.target, 'aarch64-unknown-linux')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - run: cargo test --release --target ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          root="pv-${version}-${{ matrix.platform }}"
+          # The same shape as a PHP artifact: one top-level directory holding
+          # bin/, because pv extracts with the first component stripped.
+          mkdir -p "stage/${root}/bin"
+          cp "target/${{ matrix.target }}/release/pv" "stage/${root}/bin/pv"
+          mkdir -p dist
+          tar -czf "dist/${root}.tar.gz" -C stage "${root}"
+          (cd dist && shasum -a 256 "${root}.tar.gz" > "${root}.tar.gz.sha256")
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pv-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: incoming
+      - run: |
+          mkdir -p dist
+          find incoming -type f -exec cp {} dist/ \;
+          ls -l dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          for asset in dist/*; do
+            gh release upload "$TAG" "$asset" --clobber
+          done
+
+      # The manifest lives with the runtimes and is only ever merged into, so
+      # adding pv builds cannot disturb the published PHP entries.
+      - name: Add these builds to the manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release view "$RUNTIMES_TAG" >/dev/null 2>&1 || \
+            gh release create "$RUNTIMES_TAG" --title "PHP runtimes" \
+              --notes "Prebuilt PHP runtimes installed by pv." --latest=false
+          gh release download "$RUNTIMES_TAG" --pattern manifest.json --dir previous || true
+          ./build/gen-manifest.py \
+            --dist dist \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
+            --merge previous/manifest.json \
+            --out manifest.json
+          gh release upload "$RUNTIMES_TAG" manifest.json --clobber

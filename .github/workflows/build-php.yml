@@ -1,0 +1,156 @@
+name: build-php
+
+# One run is one build wave: every (PHP line × platform) pair, packaged,
+# verified, and published to the rolling `runtimes` release with a regenerated
+# manifest.
+#
+# Builds are long and macOS runner minutes are the expensive ones, so the spc
+# tree is cached per (line × platform) and a wave can be narrowed with the
+# `lines` and `platforms` inputs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lines:
+        description: 'PHP lines to build, comma-separated'
+        default: '8.1,8.2,8.3,8.4'
+      platforms:
+        description: 'Platforms to build, comma-separated'
+        default: 'darwin-arm64,linux-x86_64'
+  schedule:
+    # Weekly, so a new upstream patch reaches users without anyone asking.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: write
+
+env:
+  RUNTIMES_TAG: runtimes
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          LINES: ${{ inputs.lines || '8.1,8.2,8.3,8.4' }}
+          PLATFORMS: ${{ inputs.platforms || 'darwin-arm64,linux-x86_64' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          runners = {
+              "darwin-arm64": "macos-14",
+              "darwin-x86_64": "macos-13",
+              "linux-x86_64": "ubuntu-22.04",
+              "linux-arm64": "ubuntu-22.04-arm",
+          }
+          lines = [l.strip() for l in os.environ["LINES"].split(",") if l.strip()]
+          platforms = [p.strip() for p in os.environ["PLATFORMS"].split(",") if p.strip()]
+          unknown = [p for p in platforms if p not in runners]
+          if unknown:
+              raise SystemExit(f"no runner mapped for: {unknown}")
+          include = [
+              {"line": line, "platform": platform, "runner": runners[platform]}
+              for platform in platforms
+              for line in lines
+          ]
+          print("matrix=" + json.dumps({"include": include}))
+          PY
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    # A single broken PHP line must not block the whole wave. The failure is
+    # still loud in the run summary — a soft failure nobody notices is how a
+    # version silently stops being published.
+    continue-on-error: true
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the build tree
+        uses: actions/cache@v4
+        with:
+          path: .spc-cache/${{ matrix.line }}-${{ matrix.platform }}
+          key: spc-${{ matrix.platform }}-${{ matrix.line }}-${{ hashFiles('build/*.sh') }}
+          restore-keys: |
+            spc-${{ matrix.platform }}-${{ matrix.line }}-
+
+      - name: Build PHP ${{ matrix.line }} for ${{ matrix.platform }}
+        env:
+          # spc resolves several sources through the GitHub API; without a
+          # token, parallel matrix jobs share one IP and hit the 60/hr limit.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./build/build-php.sh "${{ matrix.line }}" "${{ matrix.platform }}"
+
+      - name: Summarize
+        if: always()
+        run: |
+          if ls dist/php-*.tar.gz >/dev/null 2>&1; then
+            echo "- ok **${{ matrix.line }} / ${{ matrix.platform }}**: $(ls dist/php-*.tar.gz | xargs -n1 basename | paste -sd' ' -)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **FAILED** ${{ matrix.line }} / ${{ matrix.platform }} — nothing published for it this wave" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: php-${{ matrix.line }}-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: incoming
+      - run: |
+          mkdir -p dist
+          find incoming -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} dist/ \;
+          ls -l dist
+
+      - name: Ensure the rolling release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$RUNTIMES_TAG" >/dev/null 2>&1 || \
+            gh release create "$RUNTIMES_TAG" \
+              --title "PHP runtimes" \
+              --notes "Prebuilt PHP runtimes installed by pv. The manifest here is what \`pv install\` reads." \
+              --latest=false
+
+      # Merge into the published manifest rather than replacing it: a wave that
+      # rebuilt only some versions must not unpublish the rest.
+      - name: Generate the manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "$RUNTIMES_TAG" --pattern manifest.json --dir previous || true
+          ./build/gen-manifest.py \
+            --dist dist \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RUNTIMES_TAG}" \
+            --merge previous/manifest.json \
+            --out dist/manifest.json
+          cat dist/manifest.json
+
+      - name: Upload artifacts and manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Assets first, manifest last: a client that fetches the manifest
+          # mid-publish should never be pointed at an asset that is not there.
+          shopt -s nullglob
+          for asset in dist/*.tar.gz dist/*.tar.gz.sha256; do
+            gh release upload "$RUNTIMES_TAG" "$asset" --clobber
+          done
+          gh release upload "$RUNTIMES_TAG" dist/manifest.json --clobber
