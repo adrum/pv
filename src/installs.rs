@@ -104,6 +104,5 @@ pub fn now_unix() -> u64 {
 
 pub fn remove(version: &Version) -> Result<()> {
     let dir = paths::version_dir(&version.to_string())?;
-    std::fs::remove_dir_all(&dir)
-        .with_context(|| format!("could not remove {}", dir.display()))
+    std::fs::remove_dir_all(&dir).with_context(|| format!("could not remove {}", dir.display()))
 }

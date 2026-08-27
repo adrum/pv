@@ -57,6 +57,5 @@ pub fn artifact_record(version: &str) -> Result<PathBuf> {
 }
 
 pub fn ensure_dir(path: &Path) -> Result<()> {
-    std::fs::create_dir_all(path)
-        .with_context(|| format!("could not create {}", path.display()))
+    std::fs::create_dir_all(path).with_context(|| format!("could not create {}", path.display()))
 }

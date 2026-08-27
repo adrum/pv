@@ -79,10 +79,7 @@ pub fn run() -> Result<Vec<Finding>> {
 
     let installed = installs::installed()?;
     if installed.is_empty() {
-        findings.push(Finding::problem(
-            "no PHP installed",
-            "run `pv install 8.4`",
-        ));
+        findings.push(Finding::problem("no PHP installed", "run `pv install 8.4`"));
     } else {
         let list: Vec<String> = installed.iter().map(ToString::to_string).collect();
         findings.push(Finding::ok(format!(
@@ -155,7 +152,10 @@ fn path_checks() -> Result<Vec<Finding>> {
     // exist, or an old one.
     match which_on_path("php") {
         Some(found) if shims::is_pv_shim(&found)? => {
-            findings.push(Finding::ok(format!("php on PATH is pv's shim ({})", found.display())));
+            findings.push(Finding::ok(format!(
+                "php on PATH is pv's shim ({})",
+                found.display()
+            )));
         }
         Some(found) => findings.push(Finding::warn(
             format!("php on PATH is not a pv shim ({})", found.display()),
@@ -198,7 +198,10 @@ fn install_checks(installed: &[crate::version::Version]) -> Result<Vec<Finding>>
                 let cached = paths::cache_dir()?.join(&record.file);
                 if cached.is_file() && net::sha256_file(&cached)? != record.sha256 {
                     findings.push(Finding::problem(
-                        format!("{version}: cached {} does not match its record", record.file),
+                        format!(
+                            "{version}: cached {} does not match its record",
+                            record.file
+                        ),
                         format!(
                             "delete {} and run `pv install {version} --force`",
                             cached.display()
@@ -214,10 +217,7 @@ fn install_checks(installed: &[crate::version::Version]) -> Result<Vec<Finding>>
     Ok(findings)
 }
 
-fn resolution_check(
-    config: &Config,
-    installed: &[crate::version::Version],
-) -> Result<Finding> {
+fn resolution_check(config: &Config, installed: &[crate::version::Version]) -> Result<Finding> {
     let cwd = std::env::current_dir()?;
     let environment = std::env::var("PV_PHP_VERSION").ok();
     let request = Request {

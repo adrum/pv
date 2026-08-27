@@ -19,7 +19,11 @@ pub struct Version {
 
 impl Version {
     pub fn new(major: u64, minor: u64, patch: u64) -> Self {
-        Self { major, minor, patch }
+        Self {
+            major,
+            minor,
+            patch,
+        }
     }
 
     /// The `8.4` line this version belongs to.
@@ -40,9 +44,7 @@ impl FromStr for Version {
         let mut parts = s.split('.');
         let mut next = |what: &str| -> Result<u64> {
             match parts.next() {
-                Some(p) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => {
-                    Ok(p.parse()?)
-                }
+                Some(p) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => Ok(p.parse()?),
                 _ => bail!("`{s}` is not a version — expected {what}, as in 8.4.3"),
             }
         };
@@ -183,17 +185,18 @@ pub fn best_matching_constraint(constraint: &str, candidates: &[Version]) -> Opt
 /// select 8.4 — the opposite of what the file says.
 fn to_semver_req(alternative: &str) -> String {
     let alternative = alternative.trim();
-    let bare = !alternative.is_empty()
-        && alternative
-            .chars()
-            .all(|c| c.is_ascii_digit() || c == '.');
+    let bare =
+        !alternative.is_empty() && alternative.chars().all(|c| c.is_ascii_digit() || c == '.');
     let alternative = if bare {
         format!("={alternative}")
     } else {
         alternative.to_string()
     };
     // Composer separates range parts with spaces; semver wants commas.
-    alternative.split_whitespace().collect::<Vec<_>>().join(", ")
+    alternative
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]

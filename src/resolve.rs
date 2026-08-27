@@ -81,9 +81,9 @@ pub fn resolve(request: &Request<'_>) -> Result<Resolution> {
     for dir in search_path(request) {
         let file = dir.join(VERSION_FILE);
         if let Some(raw) = read_version_file(&file)? {
-            let selector: Selector = raw.parse().with_context(|| {
-                format!("{} does not contain a usable version", file.display())
-            })?;
+            let selector: Selector = raw
+                .parse()
+                .with_context(|| format!("{} does not contain a usable version", file.display()))?;
             return pick(request, &selector, Source::VersionFile(file));
         }
     }
@@ -243,21 +243,36 @@ mod tests {
     fn a_line_resolves_to_the_newest_patch() {
         let fixture = Fixture::new();
         fixture.write(".php-version", "8.4\n");
-        assert_eq!(resolve(&fixture.request(&fixture.sub(""), None)).unwrap().version, v(8, 4, 12));
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(8, 4, 12)
+        );
     }
 
     #[test]
     fn prefixed_version_files_still_work() {
         let fixture = Fixture::new();
         fixture.write(".php-version", "php-8.2.20\n");
-        assert_eq!(resolve(&fixture.request(&fixture.sub(""), None)).unwrap().version, v(8, 2, 20));
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(8, 2, 20)
+        );
     }
 
     #[test]
     fn comments_and_blank_lines_are_skipped() {
         let fixture = Fixture::new();
         fixture.write(".php-version", "\n# pinned for the legacy app\n7.4.33\n");
-        assert_eq!(resolve(&fixture.request(&fixture.sub(""), None)).unwrap().version, v(7, 4, 33));
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(7, 4, 33)
+        );
     }
 
     #[test]
@@ -289,7 +304,10 @@ mod tests {
     fn every_version_file_is_checked_before_any_composer_json() {
         let fixture = Fixture::new();
         fixture.write(".php-version", "8.2.20\n");
-        fixture.write("packages/api/composer.json", r#"{"require":{"php":"^8.4"}}"#);
+        fixture.write(
+            "packages/api/composer.json",
+            r#"{"require":{"php":"^8.4"}}"#,
+        );
         let resolution = resolve(&fixture.request(&fixture.sub("packages/api"), None)).unwrap();
         assert_eq!(resolution.version, v(8, 2, 20));
     }
@@ -312,10 +330,20 @@ mod tests {
         // Nothing installed satisfies this, and the file itself is broken
         // further down — either way the hint is skipped, not fatal.
         fixture.write("composer.json", r#"{"require":{"php":"^9.0"}}"#);
-        assert_eq!(resolve(&fixture.request(&fixture.sub(""), None)).unwrap().version, v(8, 4, 12));
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(8, 4, 12)
+        );
 
         fixture.write("composer.json", "{ not json");
-        assert_eq!(resolve(&fixture.request(&fixture.sub(""), None)).unwrap().version, v(8, 4, 12));
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(8, 4, 12)
+        );
     }
 
     #[test]
@@ -333,7 +361,9 @@ mod tests {
     fn pinned_but_missing_names_the_next_action() {
         let fixture = Fixture::new();
         fixture.write(".php-version", "8.3.1\n");
-        let error = resolve(&fixture.request(&fixture.sub(""), None)).unwrap_err().to_string();
+        let error = resolve(&fixture.request(&fixture.sub(""), None))
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("pv install 8.3.1"), "{error}");
     }
 

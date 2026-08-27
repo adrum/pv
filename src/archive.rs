@@ -15,7 +15,8 @@ pub fn extract_stripped(tarball: &Path, dest: &Path) -> Result<()> {
         .with_context(|| format!("could not open {}", tarball.display()))?;
     let mut archive = Archive::new(GzDecoder::new(file));
     archive.set_preserve_permissions(true);
-    std::fs::create_dir_all(dest).with_context(|| format!("could not create {}", dest.display()))?;
+    std::fs::create_dir_all(dest)
+        .with_context(|| format!("could not create {}", dest.display()))?;
 
     let mut extracted = 0usize;
     for entry in archive
@@ -32,9 +33,9 @@ pub fn extract_stripped(tarball: &Path, dest: &Path) -> Result<()> {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("could not create {}", parent.display()))?;
         }
-        entry
-            .unpack(&out)
-            .with_context(|| format!("could not extract {} to {}", path.display(), out.display()))?;
+        entry.unpack(&out).with_context(|| {
+            format!("could not extract {} to {}", path.display(), out.display())
+        })?;
         extracted += 1;
     }
 

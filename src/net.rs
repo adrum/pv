@@ -94,8 +94,8 @@ pub fn download(url: &str, dest: &Path, expected_size: Option<u64>) -> Result<St
 }
 
 pub fn sha256_file(path: &Path) -> Result<String> {
-    let mut file = std::fs::File::open(path)
-        .with_context(|| format!("could not read {}", path.display()))?;
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("could not read {}", path.display()))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 128 * 1024];
     loop {

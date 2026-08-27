@@ -157,9 +157,9 @@ pub fn path_status(command: &str) -> Result<PathStatus> {
 pub fn init_snippet(shell: &str, shims: &Path) -> String {
     let shims = shims.to_string_lossy().to_string();
     match shell {
-        "fish" => format!(
-            "# pv\nif not contains {shims} $PATH\n    set -gx PATH {shims} $PATH\nend\n"
-        ),
+        "fish" => {
+            format!("# pv\nif not contains {shims} $PATH\n    set -gx PATH {shims} $PATH\nend\n")
+        }
         _ => format!(
             "# pv\ncase \":$PATH:\" in\n  *\":{shims}:\"*) ;;\n  *) PATH=\"{shims}:$PATH\" ;;\nesac\nexport PATH\n"
         ),
