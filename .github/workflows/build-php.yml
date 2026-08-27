@@ -131,15 +131,29 @@ jobs:
 
       # Merge into the published manifest rather than replacing it: a wave that
       # rebuilt only some versions must not unpublish the rest.
+      #
+      # "Could not download it" and "there is nothing to download yet" must be
+      # told apart before deciding to start from nothing — a transient API
+      # error that reads as the latter would quietly unpublish every version
+      # this wave did not touch. The release's asset list is the arbiter.
       - name: Generate the manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download "$RUNTIMES_TAG" --pattern manifest.json --dir previous || true
+          if gh release download "$RUNTIMES_TAG" --pattern manifest.json --dir previous; then
+            merge=(--merge previous/manifest.json)
+          elif gh release view "$RUNTIMES_TAG" --json assets \
+                 --jq '.assets[].name' | grep -qx manifest.json; then
+            echo "error: the release has a manifest.json but it could not be downloaded" >&2
+            exit 1
+          else
+            echo "note: no manifest published yet — bootstrapping one"
+            merge=(--allow-empty)
+          fi
           ./build/gen-manifest.py \
             --dist dist \
             --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RUNTIMES_TAG}" \
-            --merge previous/manifest.json \
+            "${merge[@]}" \
             --out dist/manifest.json
           cat dist/manifest.json
 

@@ -38,17 +38,41 @@ def read_sha256(sidecar: Path) -> str:
     return digest.lower()
 
 
-def load_previous(source: str | None) -> dict:
-    if not source:
-        return {}
+def load_previous(source: str) -> dict:
+    """The published manifest, or an error.
+
+    Failing to *fetch* it is fatal. A transient API error would otherwise be
+    indistinguishable from "there is nothing to merge", and the wave would
+    publish a manifest holding only what it just built — silently unpublishing
+    every version it did not touch. Starting from nothing has to be an explicit
+    decision (`--allow-empty`), taken once when the release is bootstrapped.
+    """
     try:
         if source.startswith(("http://", "https://")):
             with urllib.request.urlopen(source, timeout=30) as response:
-                return json.load(response)
-        return json.loads(Path(source).read_text())
-    except Exception as error:  # noqa: BLE001 — any failure means "nothing to merge"
-        print(f"note: no previous manifest merged ({error})", file=sys.stderr)
-        return {}
+                payload = response.read()
+        else:
+            payload = Path(source).read_bytes()
+    except Exception as error:  # noqa: BLE001 — network, filesystem, anything
+        raise SystemExit(
+            f"error: could not read the published manifest at {source} ({error}).\n"
+            "Refusing to publish: this would unpublish every version this wave "
+            "did not rebuild. Retry, or pass --allow-empty if this really is the "
+            "first wave."
+        ) from error
+
+    try:
+        manifest = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise SystemExit(
+            f"error: the published manifest at {source} is not valid JSON ({error}). "
+            "Fix it by hand rather than overwriting it — the entries it holds are "
+            "the only record of what is currently published."
+        ) from error
+
+    if not isinstance(manifest, dict):
+        raise SystemExit(f"error: the published manifest at {source} is not an object")
+    return manifest
 
 
 def main() -> int:
@@ -56,10 +80,19 @@ def main() -> int:
     parser.add_argument("--dist", required=True, type=Path)
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--merge", help="URL or path of the manifest to merge into")
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="start from nothing — only correct when no manifest is published yet",
+    )
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
 
-    manifest = load_previous(args.merge)
+    if bool(args.merge) == args.allow_empty:
+        raise SystemExit("error: pass exactly one of --merge and --allow-empty")
+
+    manifest = load_previous(args.merge) if args.merge else {}
+    carried = sum(len(platforms) for platforms in manifest.get("php", {}).values())
     manifest["schema"] = SCHEMA
     manifest.setdefault("php", {})
     manifest.setdefault("pv", {})
@@ -87,10 +120,17 @@ def main() -> int:
         manifest[kind].setdefault(version, {})[platform] = entry
         added += 1
 
+    if args.merge and added == 0:
+        print("note: this wave produced no artifacts; republishing the manifest unchanged",
+              file=sys.stderr)
+
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
-    print(f"wrote {args.out} ({added} artifacts this wave, "
-          f"{sum(len(p) for p in manifest['php'].values())} php entries total)")
+    total = sum(len(platforms) for platforms in manifest["php"].values())
+    print(
+        f"wrote {args.out}: {added} artifacts this wave, {carried} php entries carried "
+        f"forward, {total} php entries published"
+    )
     return 0
 
 

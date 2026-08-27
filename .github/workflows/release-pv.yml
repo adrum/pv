@@ -110,10 +110,22 @@ jobs:
           gh release view "$RUNTIMES_TAG" >/dev/null 2>&1 || \
             gh release create "$RUNTIMES_TAG" --title "PHP runtimes" \
               --notes "Prebuilt PHP runtimes installed by pv." --latest=false
-          gh release download "$RUNTIMES_TAG" --pattern manifest.json --dir previous || true
+          # Same rule as a build wave: only a manifest that is genuinely absent
+          # justifies starting from nothing. A failed download here would drop
+          # every published PHP entry.
+          if gh release download "$RUNTIMES_TAG" --pattern manifest.json --dir previous; then
+            merge=(--merge previous/manifest.json)
+          elif gh release view "$RUNTIMES_TAG" --json assets \
+                 --jq '.assets[].name' | grep -qx manifest.json; then
+            echo "error: the release has a manifest.json but it could not be downloaded" >&2
+            exit 1
+          else
+            echo "note: no manifest published yet — bootstrapping one"
+            merge=(--allow-empty)
+          fi
           ./build/gen-manifest.py \
             --dist dist \
             --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}" \
-            --merge previous/manifest.json \
+            "${merge[@]}" \
             --out manifest.json
           gh release upload "$RUNTIMES_TAG" manifest.json --clobber
