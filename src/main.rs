@@ -99,6 +99,9 @@ struct ListArgs {
     /// List what can be installed instead of what is installed
     #[arg(long)]
     remote: bool,
+    /// With --remote, show every published patch rather than the newest few
+    #[arg(long)]
+    all: bool,
 }
 
 #[derive(Subcommand)]
@@ -125,7 +128,7 @@ fn run() -> Result<ExitCode> {
     match Cli::parse().command {
         Command::Install { version, force } => cmd_install(&version, force),
         Command::Uninstall { version } => cmd_uninstall(&version),
-        Command::List(args) => cmd_list(args.remote),
+        Command::List(args) => cmd_list(args.remote, args.all),
         Command::Pin { version } => cmd_pin(&version),
         Command::Default { version } => cmd_default(version.as_deref()),
         Command::Which { command } => cmd_which(&command),
@@ -219,7 +222,10 @@ fn cmd_uninstall(version: &str) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_list(remote: bool) -> Result<ExitCode> {
+/// Patches per minor line shown by `pv list --remote` without `--all`.
+const REMOTE_PATCHES_PER_LINE: usize = 3;
+
+fn cmd_list(remote: bool, all: bool) -> Result<ExitCode> {
     let installed = installs::installed()?;
 
     if remote {
@@ -231,13 +237,39 @@ fn cmd_list(remote: bool) -> Result<ExitCode> {
             println!("no PHP builds published for {platform}");
             return Ok(ExitCode::SUCCESS);
         }
-        for version in available.iter().rev() {
+
+        // Trim the listing, never the catalogue: older patches stay
+        // installable by exact version, and anything already installed is
+        // shown regardless of age — hiding a version the user is standing on
+        // would read as it having been withdrawn.
+        let shown = if all {
+            available.clone()
+        } else {
+            let mut shown = version::newest_per_line(&available, REMOTE_PATCHES_PER_LINE);
+            for version in &installed {
+                if available.contains(version) && !shown.contains(version) {
+                    shown.push(*version);
+                }
+            }
+            shown.sort();
+            shown
+        };
+        let hidden = available.len() - shown.len();
+
+        for version in shown.iter().rev() {
             let marker = if installed.contains(version) {
                 " (installed)"
             } else {
                 ""
             };
             println!("{version}{marker}");
+        }
+        if hidden > 0 {
+            println!(
+                "\n{hidden} older {} not shown — `pv list --remote --all` lists them, and \
+                 any of them installs by exact version",
+                if hidden == 1 { "patch" } else { "patches" }
+            );
         }
         return Ok(ExitCode::SUCCESS);
     }

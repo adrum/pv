@@ -41,7 +41,7 @@ eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 | `pv install <version>` | install `8.4`, `8.4.3` or `latest` |
 | `pv uninstall <version>` | remove an installed version |
 | `pv list` | installed versions, active one marked |
-| `pv list --remote` | what can be installed |
+| `pv list --remote` | what can be installed (newest 3 patches per line; `--all` for every one) |
 | `pv pin <version>` | write `.php-version` here |
 | `pv default <version>` | version used when nothing pins one |
 | `pv which [command]` | the binary that would run here, and nothing else |
@@ -113,6 +113,18 @@ on macOS) and `pcov` (shared-only, like Xdebug — use `xdebug.mode=coverage`).
 Linux builds link glibc rather than static musl, because static musl has no
 `dlopen` and therefore no Xdebug. The trade is a glibc floor: binaries need a
 glibc at least as new as the build image's.
+
+## What stays installable
+
+Every patch that has ever been published stays published. `pv list --remote`
+shows the newest three per line to keep the listing readable, and `--all` shows
+the rest — but the trimming is cosmetic: any published version installs by
+exact version, whether or not the listing mentions it.
+
+That matters because `.php-version` holds an exact patch and gets committed.
+Withdrawing old patches would break those pins on any machine that had not
+already installed them — a fresh CI runner, a new laptop — which is precisely
+the case pinning exists to protect.
 
 ## Integrity
 

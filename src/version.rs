@@ -177,6 +177,36 @@ pub fn best_matching_constraint(constraint: &str, candidates: &[Version]) -> Opt
         .copied()
 }
 
+/// The newest `keep` patches of each minor line, oldest first.
+///
+/// Only ever used to trim what is *shown*. Everything published stays
+/// installable — an exact pin is the whole point of writing one, and a
+/// listing that is convenient to read is not a reason to make a pin
+/// unresolvable.
+pub fn newest_per_line(versions: &[Version], keep: usize) -> Vec<Version> {
+    let mut sorted = versions.to_vec();
+    sorted.sort();
+
+    let mut kept: Vec<Version> = Vec::new();
+    let mut seen: Vec<((u64, u64), usize)> = Vec::new();
+    for version in sorted.iter().rev() {
+        let line = version.line();
+        let count = match seen.iter_mut().find(|(seen_line, _)| *seen_line == line) {
+            Some((_, count)) => count,
+            None => {
+                seen.push((line, 0));
+                &mut seen.last_mut().expect("just pushed").1
+            }
+        };
+        if *count < keep {
+            *count += 1;
+            kept.push(*version);
+        }
+    }
+    kept.sort();
+    kept
+}
+
 /// Translate one Composer constraint into the semver crate's dialect.
 ///
 /// The dialects agree on `^`, `~`, ranges and wildcards, and disagree on a
@@ -271,6 +301,37 @@ mod tests {
             best_matching_constraint("~8.1.0 || ~8.2.0", &all),
             Some(v(8, 2, 20))
         );
+    }
+
+    #[test]
+    fn keeps_the_newest_patches_of_every_line() {
+        let all = [
+            v(7, 4, 33),
+            v(8, 3, 10),
+            v(8, 3, 11),
+            v(8, 3, 12),
+            v(8, 3, 13),
+            v(8, 4, 1),
+            v(8, 4, 2),
+        ];
+        assert_eq!(
+            newest_per_line(&all, 3),
+            vec![
+                v(7, 4, 33),
+                v(8, 3, 11),
+                v(8, 3, 12),
+                v(8, 3, 13),
+                v(8, 4, 1),
+                v(8, 4, 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_shorter_than_the_cap_is_untouched() {
+        let all = [v(8, 4, 1), v(8, 5, 0)];
+        assert_eq!(newest_per_line(&all, 3), vec![v(8, 4, 1), v(8, 5, 0)]);
+        assert!(newest_per_line(&[], 3).is_empty());
     }
 
     #[test]
