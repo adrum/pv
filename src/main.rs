@@ -1,6 +1,7 @@
 //! pv — a fast PHP version manager.
 
 mod archive;
+mod cache;
 mod config;
 mod doctor;
 mod install;
@@ -98,6 +99,9 @@ enum Command {
     },
     /// Regenerate the shims
     Rehash,
+    /// Inspect or clear the download cache
+    #[command(subcommand)]
+    Cache(CacheCommand),
     /// Check the installation and report anything that would fail silently
     Doctor,
     /// Manage pv itself
@@ -114,6 +118,16 @@ struct ListArgs {
     /// With --remote, show every published patch rather than the newest few
     #[arg(long)]
     all: bool,
+}
+
+#[derive(Subcommand)]
+enum CacheCommand {
+    /// Show what the cache holds
+    Status,
+    /// Remove cached tarballs no installed version came from
+    Prune,
+    /// Remove every cached tarball
+    Clear,
 }
 
 #[derive(Subcommand)]
@@ -151,6 +165,7 @@ fn run() -> Result<ExitCode> {
         } => cmd_resolve(pinned_only, source),
         Command::Init { shell, hook } => cmd_init(&shell, hook),
         Command::Rehash => cmd_rehash(),
+        Command::Cache(command) => cmd_cache(command),
         Command::Doctor => cmd_doctor(),
         Command::Zelf(SelfCommand::Update { force }) => {
             selfupdate::update(force)?;
@@ -425,6 +440,46 @@ fn cmd_init(shell: &str, hook: bool) -> Result<ExitCode> {
     if hook {
         let pv = std::env::current_exe().context("could not determine pv's own path")?;
         print!("{}", shims::hook_snippet(shell, &pv));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_cache(command: CacheCommand) -> Result<ExitCode> {
+    let entries = cache::entries()?;
+    match command {
+        CacheCommand::Status => {
+            if entries.is_empty() {
+                println!("cache is empty ({})", paths::cache_dir()?.display());
+                return Ok(ExitCode::SUCCESS);
+            }
+            for entry in &entries {
+                let name = entry.path.file_name().unwrap_or_default().to_string_lossy();
+                let use_marker = if entry.in_use { "  (in use)" } else { "" };
+                println!("{:>10}  {name}{use_marker}", net::megabytes(entry.bytes));
+            }
+            println!(
+                "\n{} in {} — `pv cache prune` removes the {} nothing is installed from",
+                net::megabytes(cache::total_bytes(&entries)),
+                paths::cache_dir()?.display(),
+                entries.iter().filter(|entry| !entry.in_use).count(),
+            );
+        }
+        CacheCommand::Prune => {
+            let (removed, freed) = cache::remove(true)?;
+            println!(
+                "removed {removed} cached tarballs, freed {}",
+                net::megabytes(freed)
+            );
+        }
+        CacheCommand::Clear => {
+            // Safe by construction: a cached tarball is only ever a download
+            // shortcut, and every installed tree stays where it is.
+            let (removed, freed) = cache::remove(false)?;
+            println!(
+                "removed {removed} cached tarballs, freed {}",
+                net::megabytes(freed)
+            );
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

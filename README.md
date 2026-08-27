@@ -49,6 +49,7 @@ eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 | `pv resolve` | the version that would be used here (`--source` says why) |
 | `pv init <shell>` | shell setup for `PATH` (`--hook` adds `cd`-time switching) |
 | `pv rehash` | regenerate the shims |
+| `pv cache status\|prune\|clear` | inspect or clear downloaded tarballs |
 | `pv doctor` | check the installation |
 | `pv self update` | replace this binary with the newest build |
 
