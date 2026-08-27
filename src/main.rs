@@ -1,0 +1,365 @@
+//! pv — a fast PHP version manager.
+
+mod archive;
+mod config;
+mod doctor;
+mod install;
+mod installs;
+mod manifest;
+mod net;
+mod paths;
+mod platform;
+mod resolve;
+mod selfupdate;
+mod shims;
+mod version;
+
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+use anyhow::{Context, Result, bail};
+use clap::{Args, Parser, Subcommand};
+
+use crate::config::Config;
+use crate::resolve::{Request, Resolution};
+use crate::version::{Selector, Version};
+
+#[derive(Parser)]
+#[command(
+    name = "pv",
+    version,
+    about = "Install and switch PHP versions in seconds",
+    disable_help_subcommand = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Install a PHP version: 8.4, 8.4.3, or latest
+    Install {
+        /// Version or line to install
+        version: String,
+        /// Reinstall even when the same artifact is already installed
+        #[arg(long)]
+        force: bool,
+    },
+    /// Remove an installed PHP version
+    Uninstall {
+        /// Version or line to remove
+        version: String,
+    },
+    /// List installed versions
+    List(ListArgs),
+    /// Write .php-version in the current directory
+    Pin {
+        /// Version or line to pin
+        version: String,
+    },
+    /// Show or set the version used when nothing pins one
+    Default {
+        /// Version or line to make the default; omit to show the current one
+        version: Option<String>,
+    },
+    /// Print the binary that would run here, and nothing else
+    Which {
+        /// Command to resolve
+        #[arg(default_value = "php")]
+        command: String,
+    },
+    /// Run a command under the resolved version
+    #[command(alias = "exec")]
+    Run {
+        /// Command to run, as provided by the resolved PHP
+        command: String,
+        /// Arguments passed through untouched
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Print shell setup for PATH (add `eval "$(pv init zsh)"` to your profile)
+    Init {
+        /// zsh, bash, sh or fish
+        #[arg(default_value = "zsh")]
+        shell: String,
+    },
+    /// Regenerate the shims
+    Rehash,
+    /// Check the installation and report anything that would fail silently
+    Doctor,
+    /// Manage pv itself
+    #[command(subcommand)]
+    #[command(name = "self")]
+    Zelf(SelfCommand),
+}
+
+#[derive(Args)]
+struct ListArgs {
+    /// List what can be installed instead of what is installed
+    #[arg(long)]
+    remote: bool,
+}
+
+#[derive(Subcommand)]
+enum SelfCommand {
+    /// Replace this binary with the newest published build
+    Update {
+        /// Reinstall even when this is already the newest build
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(err) => {
+            eprintln!("pv: {err:#}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<ExitCode> {
+    match Cli::parse().command {
+        Command::Install { version, force } => cmd_install(&version, force),
+        Command::Uninstall { version } => cmd_uninstall(&version),
+        Command::List(args) => cmd_list(args.remote),
+        Command::Pin { version } => cmd_pin(&version),
+        Command::Default { version } => cmd_default(version.as_deref()),
+        Command::Which { command } => cmd_which(&command),
+        Command::Run { command, args } => cmd_run(&command, &args),
+        Command::Init { shell } => cmd_init(&shell),
+        Command::Rehash => cmd_rehash(),
+        Command::Doctor => cmd_doctor(),
+        Command::Zelf(SelfCommand::Update { force }) => {
+            selfupdate::update(force)?;
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// Resolve using the machine's real state.
+fn current_resolution() -> Result<Resolution> {
+    let config = Config::load()?;
+    let installed = installs::installed()?;
+    let cwd = std::env::current_dir().context("could not read the current directory")?;
+    let environment = std::env::var("PV_PHP_VERSION").ok();
+    resolve::resolve(&Request {
+        cwd: &cwd,
+        installed: &installed,
+        strategy: config.strategy,
+        default: config.default.as_deref(),
+        environment: environment.as_deref(),
+    })
+}
+
+fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
+    let selector: Selector = version.parse()?;
+    let outcome = install::install(&selector, force)?;
+    if !outcome.changed {
+        println!(
+            "PHP {} is already installed — `pv install {} --force` reinstalls it",
+            outcome.version, outcome.version
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    println!("installed PHP {}", outcome.version);
+    print_path_advice()?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Everything a fresh install needs to hear, and nothing it does not.
+fn print_path_advice() -> Result<()> {
+    let status = shims::path_status("php")?;
+    if !status.on_path {
+        println!();
+        println!("pv's shims are not on PATH yet. Add this to your shell profile:");
+        println!("  eval \"$(pv init zsh)\"");
+        println!("or, equivalently:");
+        println!("  export PATH=\"{}:$PATH\"", status.shims.display());
+        println!("then open a new shell. `pv doctor` will confirm it.");
+        return Ok(());
+    }
+    if !status.shadowed_by.is_empty() {
+        let owners: Vec<String> = status
+            .shadowed_by
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        println!();
+        println!(
+            "warning: {} comes before pv's shims on PATH and owns the name `php`.",
+            owners.join(", ")
+        );
+        println!("Run `pv doctor` for the fix.");
+        return Ok(());
+    }
+    // Shells cache command locations, so `php` may still resolve to a path
+    // recorded before the shim existed — or to nothing at all.
+    println!("If `php` still points somewhere else, run `hash -r` or open a new shell.");
+    Ok(())
+}
+
+fn cmd_uninstall(version: &str) -> Result<ExitCode> {
+    let selector: Selector = version.parse()?;
+    let installed = installs::installed()?;
+    let Some(target) = selector.best(&installed) else {
+        bail!("PHP {selector} is not installed — `pv list` shows what is");
+    };
+    installs::remove(&target)?;
+    shims::sync()?;
+    println!("removed PHP {target}");
+
+    if installs::installed()?.is_empty() {
+        println!("no PHP installed now — `pv install 8.4` gets one back");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_list(remote: bool) -> Result<ExitCode> {
+    let installed = installs::installed()?;
+
+    if remote {
+        let config = Config::load()?;
+        let platform = platform::current()?;
+        let manifest = manifest::Manifest::fetch(&config.manifest_url())?;
+        let available = manifest.php_versions(&platform);
+        if available.is_empty() {
+            println!("no PHP builds published for {platform}");
+            return Ok(ExitCode::SUCCESS);
+        }
+        for version in available.iter().rev() {
+            let marker = if installed.contains(version) {
+                " (installed)"
+            } else {
+                ""
+            };
+            println!("{version}{marker}");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    if installed.is_empty() {
+        println!("no PHP installed — run `pv install 8.4`");
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    // Marking the active one is the reason this command exists.
+    let active = current_resolution().ok();
+    for version in installed.iter().rev() {
+        match &active {
+            Some(resolution) if resolution.version == *version => {
+                println!("* {version}  ({})", resolution.source);
+            }
+            _ => println!("  {version}"),
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_pin(version: &str) -> Result<ExitCode> {
+    let selector: Selector = version.parse()?;
+    let path = PathBuf::from(resolve::VERSION_FILE);
+    // A bare version string, one line, no `php-` prefix.
+    std::fs::write(&path, format!("{selector}\n"))
+        .with_context(|| format!("could not write {}", path.display()))?;
+    println!("pinned {selector} in {}", resolve::VERSION_FILE);
+
+    let installed = installs::installed()?;
+    if selector.best(&installed).is_none() {
+        println!("PHP {selector} is not installed yet — run `pv install {selector}`");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_default(version: Option<&str>) -> Result<ExitCode> {
+    let mut config = Config::load()?;
+    let Some(version) = version else {
+        match &config.default {
+            Some(default) => println!("{default}"),
+            None => println!("no default set — pv falls back to the newest installed version"),
+        }
+        return Ok(ExitCode::SUCCESS);
+    };
+
+    let selector: Selector = version.parse()?;
+    config.default = Some(selector.to_string());
+    config.save()?;
+    println!("default is now {selector}");
+
+    let installed = installs::installed()?;
+    if selector.best(&installed).is_none() {
+        println!("PHP {selector} is not installed yet — run `pv install {selector}`");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_which(command: &str) -> Result<ExitCode> {
+    // Read-only, always: resolve and print, never install, never create state.
+    // Shims depend on this, and so do scripts asking "what would run here?".
+    let resolution = current_resolution()?;
+    let path = binary_or_explain(&resolution.version, command)?;
+    println!("{}", path.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_run(command: &str, args: &[String]) -> Result<ExitCode> {
+    use std::os::unix::process::CommandExt;
+
+    let resolution = current_resolution()?;
+    let path = binary_or_explain(&resolution.version, command)?;
+
+    // exec, so signals, exit codes and job control belong to PHP rather than
+    // to a pv process sitting in the middle.
+    let error = std::process::Command::new(&path).args(args).exec();
+    Err(error).with_context(|| format!("could not run {}", path.display()))
+}
+
+fn binary_or_explain(version: &Version, command: &str) -> Result<PathBuf> {
+    let path = installs::binary_path(version, command)?;
+    if path.is_file() {
+        return Ok(path);
+    }
+    let available = installs::commands(version)?;
+    bail!(
+        "PHP {version} does not provide `{command}` — it provides: {}",
+        if available.is_empty() {
+            format!("nothing — the install looks broken, try `pv install {version} --force`")
+        } else {
+            available.join(", ")
+        }
+    )
+}
+
+fn cmd_init(shell: &str) -> Result<ExitCode> {
+    match shell {
+        "zsh" | "bash" | "sh" | "fish" => {}
+        other => bail!("pv has no init snippet for `{other}` — try zsh, bash, sh or fish"),
+    }
+    print!("{}", shims::init_snippet(shell, &paths::shims_dir()?));
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_rehash() -> Result<ExitCode> {
+    let written = shims::sync()?;
+    if written.is_empty() {
+        println!("no shims written — no PHP installed yet");
+    } else {
+        println!("shims: {}", written.join(", "));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_doctor() -> Result<ExitCode> {
+    let findings = doctor::run()?;
+    let (report, healthy) = doctor::report(&findings);
+    print!("{report}");
+    Ok(if healthy {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
+}
