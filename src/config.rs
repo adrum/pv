@@ -26,8 +26,17 @@ pub struct Config {
     pub manifest_url: Option<String>,
 }
 
-pub const DEFAULT_MANIFEST_URL: &str =
-    "https://github.com/austindrummond/pv/releases/latest/download/manifest.json";
+/// Where artifacts are published, in order of precedence: `PV_MANIFEST_URL`,
+/// then `manifest_url` in the config file, then this.
+///
+/// The manifest lives under a rolling release tag rather than `latest`, so
+/// cutting a pv release cannot move the runtime manifest out from under
+/// installed clients. Set `PV_DEFAULT_MANIFEST_URL` at build time to point a
+/// fork or a mirror somewhere else.
+pub const DEFAULT_MANIFEST_URL: &str = match option_env!("PV_DEFAULT_MANIFEST_URL") {
+    Some(url) => url,
+    None => "https://github.com/austindrummond/pv/releases/download/runtimes/manifest.json",
+};
 
 impl Config {
     pub fn load() -> Result<Self> {
@@ -51,8 +60,7 @@ impl Config {
         let path = paths::config_path()?;
         paths::ensure_dir(&paths::home()?)?;
         let body = toml::to_string_pretty(self).context("could not serialize pv config")?;
-        std::fs::write(&path, body)
-            .with_context(|| format!("could not write {}", path.display()))
+        std::fs::write(&path, body).with_context(|| format!("could not write {}", path.display()))
     }
 
     pub fn manifest_url(&self) -> String {
