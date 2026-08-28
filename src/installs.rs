@@ -110,6 +110,11 @@ pub fn is_installed(version: &Version) -> Result<bool> {
         .is_file())
 }
 
+/// The `bin` directory of an installed version.
+pub fn bin_dir(version: &Version) -> Result<PathBuf> {
+    Ok(paths::version_dir(&version.to_string())?.join("bin"))
+}
+
 /// Path to a command inside an installed version, whether or not it exists.
 pub fn binary_path(version: &Version, command: &str) -> Result<PathBuf> {
     Ok(paths::version_dir(&version.to_string())?

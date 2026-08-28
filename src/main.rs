@@ -6,6 +6,7 @@ mod config;
 mod doctor;
 mod install;
 mod installs;
+mod lookup;
 mod manifest;
 mod net;
 mod paths;
@@ -364,8 +365,7 @@ fn cmd_which(command: &str) -> Result<ExitCode> {
     // Read-only, always: resolve and print, never install, never create state.
     // Shims depend on this, and so do scripts asking "what would run here?".
     let resolution = current_resolution()?;
-    let path = binary_or_explain(&resolution.version, command)?;
-    println!("{}", path.display());
+    println!("{}", locate(&resolution.version, command)?.path.display());
     Ok(ExitCode::SUCCESS)
 }
 
@@ -373,22 +373,67 @@ fn cmd_run(command: &str, args: &[String]) -> Result<ExitCode> {
     use std::os::unix::process::CommandExt;
 
     let resolution = current_resolution()?;
-    let path = binary_or_explain(&resolution.version, command)?;
+    let located = locate(&resolution.version, command)?;
 
-    // exec, so signals, exit codes and job control belong to PHP rather than
-    // to a pv process sitting in the middle.
-    let error = std::process::Command::new(&path).args(args).exec();
-    Err(error).with_context(|| format!("could not run {}", path.display()))
+    let mut process = std::process::Command::new(&located.path);
+    process.args(args);
+
+    if located.from_path {
+        // A PHP tool found on PATH — Composer being the one that matters. Two
+        // things make it run under the right PHP. The resolved bin directory
+        // goes first, ahead of pv's own shims, so a `#!/usr/bin/env php`
+        // shebang lands directly on the real binary. And the version is
+        // pinned in the environment, so anything the tool spawns resolves the
+        // same way rather than re-deriving it from a directory it may have
+        // changed into.
+        //
+        // Neither helps a wrapper with an absolute PHP path baked into it —
+        // nothing can, short of rewriting the wrapper — which is what the
+        // doctor check exists to report.
+        let mut entries = vec![installs::bin_dir(&resolution.version)?];
+        entries.extend(lookup::entries());
+        process.env("PATH", std::env::join_paths(entries)?);
+        process.env("PV_PHP_VERSION", resolution.version.to_string());
+    }
+
+    // exec, so signals, exit codes and job control belong to the command
+    // rather than to a pv process sitting in the middle.
+    let error = process.exec();
+    Err(error).with_context(|| format!("could not run {}", located.path.display()))
 }
 
-fn binary_or_explain(version: &Version, command: &str) -> Result<PathBuf> {
+struct Located {
+    path: PathBuf,
+    /// True when the command came from PATH rather than the PHP tree.
+    from_path: bool,
+}
+
+/// Where `command` lives: inside the resolved PHP first, then PATH.
+///
+/// The PATH fallback is what makes `pv run composer install` work without pv
+/// shipping Composer. pv has no business owning Composer's release cycle —
+/// but it does own which PHP a PHP tool runs under, and that is the part
+/// people actually get wrong.
+fn locate(version: &Version, command: &str) -> Result<Located> {
     let path = installs::binary_path(version, command)?;
     if path.is_file() {
-        return Ok(path);
+        return Ok(Located {
+            path,
+            from_path: false,
+        });
     }
+
+    if let Some(path) = lookup::on_path_excluding_shims(command)? {
+        return Ok(Located {
+            path,
+            from_path: true,
+        });
+    }
+
     let available = installs::commands(version)?;
     bail!(
-        "PHP {version} does not provide `{command}` — it provides: {}",
+        "`{command}` is not provided by PHP {version} and is not on PATH.\n\
+         PHP {version} provides: {}",
         if available.is_empty() {
             format!("nothing — the install looks broken, try `pv install {version} --force`")
         } else {

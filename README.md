@@ -16,6 +16,20 @@ php -v                  # PHP 8.4.x
 PHP onto the machine and pointing the right commands at it. Composer stays, and
 `pv` has no opinion about your `vendor/` directory.
 
+It does not ship Composer either — that would mean owning Composer's release
+cycle and its `self-update`, for a tool whose version has nothing to do with
+PHP's. What `pv` does own is which PHP a PHP tool runs under:
+
+```sh
+pv run composer install    # your composer, the resolved PHP
+```
+
+A `composer.phar` needs nothing special: its `#!/usr/bin/env php` shebang
+already resolves through the shims. A Composer installed by a package manager
+usually does need it — those are wrapper scripts with an absolute path to
+*that* package manager's PHP baked in, so they ignore `pv` entirely and do it
+silently. `pv doctor` looks for exactly this and says so.
+
 ## Install
 
 Download the archive for your platform from the
@@ -45,7 +59,7 @@ eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 | `pv pin <version>` | write `.php-version` here |
 | `pv default <version>` | version used when nothing pins one |
 | `pv which [command]` | the binary that would run here, and nothing else |
-| `pv run <command> …` | run a command under the resolved version |
+| `pv run <command> …` | run a command under the resolved version, from the PHP tree or PATH |
 | `pv resolve` | the version that would be used here (`--source` says why) |
 | `pv init <shell>` | shell setup for `PATH` (`--hook` adds `cd`-time switching) |
 | `pv rehash` | regenerate the shims |
