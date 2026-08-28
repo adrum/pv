@@ -6,6 +6,7 @@ mod config;
 mod doctor;
 mod install;
 mod installs;
+mod lock;
 mod lookup;
 mod manifest;
 mod net;

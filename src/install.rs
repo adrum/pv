@@ -8,7 +8,7 @@ use crate::manifest::Manifest;
 use crate::net;
 use crate::paths;
 use crate::version::{Selector, Version};
-use crate::{archive, platform, shims};
+use crate::{archive, lock, platform, shims};
 
 pub struct Outcome {
     pub version: Version,
@@ -31,6 +31,15 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
     };
     let artifact = manifest.php_artifact(&version, &platform)?;
     let expected = artifact.verified_sha256()?;
+
+    // Everything below writes to paths derived from the version — the cache
+    // entry, the staging tree, the version directory itself — so one holder
+    // at a time, per version.
+    let _lock = lock::acquire(
+        &paths::versions_dir()?,
+        &version.to_string(),
+        &format!("installing PHP {version}"),
+    )?;
 
     if !force
         && installs::is_installed(&version)?
