@@ -124,4 +124,11 @@ if [[ -f "${RELOCATED}/lib/xdebug.so" ]]; then
         fail "lib/xdebug.so does not load"
 fi
 
+# A binary distribution without its third-party license texts is a compliance
+# failure that no runtime check would ever surface.
+licenses="$(find "${TREE}/licenses" -name '*.txt' 2>/dev/null | wc -l | tr -d ' ')"
+[[ "${licenses}" -gt 10 ]] ||
+    fail "the tree carries ${licenses} third-party license files — expected the full set"
+echo "verify: ${licenses} third-party licenses included"
+
 echo "verify: ok"

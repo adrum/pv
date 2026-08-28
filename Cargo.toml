@@ -2,6 +2,12 @@
 name = "pv"
 version = "0.1.0"
 edition = "2024"
+description = "A fast PHP version manager: prebuilt, relocatable PHP runtimes and per-directory version resolution"
+repository = "https://github.com/adrum/pv"
+license = "MIT"
+readme = "README.md"
+keywords = ["php", "version-manager", "toolchain"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 anyhow = "1.0.104"

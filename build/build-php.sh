@@ -269,6 +269,32 @@ xdebug.mode = off
 xdebug.start_with_request = trigger
 EOF
 
+# --- Third-party licenses -------------------------------------------------
+# This tarball is a binary distribution of PHP and roughly fifty statically
+# linked libraries, several of which require their license text to accompany
+# the binary. spc collects them during the build; shipping bin/ without them
+# would be a licensing failure, not a packaging detail.
+LICENSE_SRC="${SPC_DIR}/buildroot/license"
+if [[ -d "${LICENSE_SRC}" ]]; then
+    mkdir -p "${STAGE_DIR}/${ARCHIVE_ROOT}/licenses"
+    cp "${LICENSE_SRC}"/*.txt "${STAGE_DIR}/${ARCHIVE_ROOT}/licenses/" 2>/dev/null || true
+    cat > "${STAGE_DIR}/${ARCHIVE_ROOT}/licenses/README.txt" <<EOF
+PHP ${PHP_VERSION} for ${PLATFORM}, built with static-php-cli.
+
+This build statically links the libraries whose licenses are in this
+directory, and includes PHP itself (see src_php-src_0.txt). Several are
+LGPL — notably gmp, gettext, libiconv, libheif and libde265 — which places
+conditions on distributing them inside a statically linked binary.
+
+The build is reproducible from the scripts at
+https://github.com/adrum/pv/tree/main/build, which pin every source.
+EOF
+else
+    echo "error: ${LICENSE_SRC} does not exist — refusing to ship a binary" \
+         "distribution without its third-party licenses" >&2
+    exit 1
+fi
+
 # Symlinks do not survive every extraction path and produce confusing partial
 # installs, so the tree is plain files only.
 find "${STAGE_DIR}/${ARCHIVE_ROOT}" -type l -delete
