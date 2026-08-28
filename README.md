@@ -81,9 +81,11 @@ First match wins:
 1. `PV_PHP_VERSION`
 2. `.php-version` in the current directory
 3. `.php-version` in an ancestor directory
-4. `composer.json` (`config.platform.php`, then `require.php`) — a **hint**:
-   it holds a constraint, so it selects among installed versions and never
-   triggers an install
+4. Composer, as a **hint**: `composer.json` (`config.platform.php`, then
+   `require.php`), then `composer.lock` (`platform-overrides.php`, then
+   `platform.php`). These hold constraints rather than versions, so they
+   select among installed versions and never trigger an install. `pv doctor`
+   says so when a project's constraint matches nothing you have
 5. the version set with `pv default`
 6. the newest installed version
 

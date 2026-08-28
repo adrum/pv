@@ -93,6 +93,9 @@ pub fn run() -> Result<Vec<Finding>> {
     if let Some(finding) = composer_check()? {
         findings.push(finding);
     }
+    if let Some(finding) = composer_constraint_check(config.strategy, &installed)? {
+        findings.push(finding);
+    }
     findings.push(resolution_check(&config, &installed)?);
     Ok(findings)
 }
@@ -213,6 +216,46 @@ fn composer_check() -> Result<Option<Finding>> {
          `pv run composer …`, or install composer.phar (its `#!/usr/bin/env php` \
          shebang resolves through pv)",
     )))
+}
+
+/// Whether this project's Composer constraint can be satisfied at all.
+///
+/// Resolution treats the constraint as a hint and falls through silently when
+/// nothing matches — which is right for `run` and `which`, and unhelpful when
+/// the user is asking what is wrong. A project asking for `^8.2` on a machine
+/// with only 8.4 installed runs perfectly well until something checks the
+/// platform requirement, so doctor is where that gets said out loud.
+fn composer_constraint_check(
+    strategy: crate::config::Strategy,
+    installed: &[crate::version::Version],
+) -> Result<Option<Finding>> {
+    let cwd = std::env::current_dir()?;
+    let directories: Vec<PathBuf> = match strategy {
+        crate::config::Strategy::Local => vec![cwd],
+        crate::config::Strategy::Recursive => cwd.ancestors().map(Path::to_path_buf).collect(),
+    };
+
+    for dir in directories {
+        let Some((file, constraint)) = resolve::composer_constraint(&dir)? else {
+            continue;
+        };
+        return Ok(Some(
+            match crate::version::best_matching_constraint(&constraint, installed) {
+                Some(version) => Finding::ok(format!(
+                    "{} wants {constraint}, satisfied by {version}",
+                    file.display()
+                )),
+                None => Finding::warn(
+                    format!(
+                        "{} wants PHP {constraint} and nothing installed satisfies it",
+                        file.display()
+                    ),
+                    "`pv list --remote` shows what you can install — until then pv falls back to another version, so this fails only when something checks the platform requirement",
+                ),
+            },
+        ));
+    }
+    Ok(None)
 }
 
 /// The absolute PHP path baked into a wrapper script, if there is one.

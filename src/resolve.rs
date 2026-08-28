@@ -88,11 +88,10 @@ pub fn resolve(request: &Request<'_>) -> Result<Resolution> {
         }
     }
 
-    // 4. composer.json, as a hint only: it holds a constraint rather than a
+    // 4. Composer, as a hint only: it holds a constraint rather than a
     //    version, so it selects among what is installed and never installs.
     for dir in search_path(request) {
-        let file = dir.join("composer.json");
-        if let Some(constraint) = read_composer_constraint(&file)?
+        if let Some((file, constraint)) = composer_constraint(&dir)?
             && let Some(version) = best_matching_constraint(&constraint, request.installed)
         {
             return Ok(Resolution {
@@ -153,27 +152,50 @@ pub fn read_version_file(path: &Path) -> Result<Option<String>> {
         .map(str::to_string))
 }
 
-/// `config.platform.php` first, then `require.php`.
+/// The PHP constraint Composer would use in `dir`, and where it was found.
 ///
-/// Platform config is what Composer itself resolves against, so it is the
-/// better signal when both are present. A malformed composer.json is not an
-/// error here — it is only ever a hint.
-fn read_composer_constraint(path: &Path) -> Result<Option<String>> {
-    let raw = match std::fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(_) => return Ok(None),
-    };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return Ok(None);
-    };
-    let constraint = json
-        .pointer("/config/platform/php")
-        .or_else(|| json.pointer("/require/php"))
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-    Ok(constraint)
+/// `composer.json` first, then `composer.lock`. The lock is a genuine
+/// fallback rather than a duplicate: a deployed tree often ships the lock
+/// without the manifest, and a `composer.json` that fails to parse should not
+/// stop pv reading a lock that does.
+///
+/// Within each file, the platform override wins over the requirement, because
+/// an override is what Composer itself resolves against — a project pinning
+/// `platform.php` to 8.2 while requiring `^8.1` means "treat this as 8.2".
+///
+/// Nothing here is ever an error. This is a hint, so an unreadable or
+/// nonsensical file means "no opinion".
+pub fn composer_constraint(dir: &Path) -> Result<Option<(PathBuf, String)>> {
+    const SOURCES: [(&str, [&str; 2]); 2] = [
+        ("composer.json", ["/config/platform/php", "/require/php"]),
+        // The lock records both: `platform-overrides` mirrors
+        // config.platform, `platform` mirrors require.
+        (
+            "composer.lock",
+            ["/platform-overrides/php", "/platform/php"],
+        ),
+    ];
+
+    for (name, pointers) in SOURCES {
+        let file = dir.join(name);
+        let Ok(raw) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        let constraint = pointers
+            .iter()
+            .find_map(|pointer| json.pointer(pointer))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if let Some(constraint) = constraint {
+            return Ok(Some((file, constraint)));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -322,6 +344,46 @@ mod tests {
         let resolution = resolve(&fixture.request(&fixture.sub(""), None)).unwrap();
         assert_eq!(resolution.version, v(8, 2, 20));
         assert!(matches!(resolution.source, Source::Composer(_, _)));
+    }
+
+    #[test]
+    fn composer_lock_is_used_when_the_manifest_has_no_opinion() {
+        let fixture = Fixture::new();
+        fixture.write(
+            "composer.lock",
+            r#"{"platform":{"php":"^8.2"},"platform-overrides":{"php":"7.4.33"}}"#,
+        );
+        let resolution = resolve(&fixture.request(&fixture.sub(""), None)).unwrap();
+        // platform-overrides wins inside the lock, exactly as config.platform
+        // wins inside composer.json.
+        assert_eq!(resolution.version, v(7, 4, 33));
+        assert!(matches!(resolution.source, Source::Composer(_, _)));
+    }
+
+    #[test]
+    fn composer_json_wins_over_the_lock() {
+        let fixture = Fixture::new();
+        fixture.write("composer.json", r#"{"require":{"php":"~8.2.0"}}"#);
+        fixture.write("composer.lock", r#"{"platform":{"php":"^7.4"}}"#);
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(8, 2, 20)
+        );
+    }
+
+    #[test]
+    fn a_broken_composer_json_does_not_hide_a_usable_lock() {
+        let fixture = Fixture::new();
+        fixture.write("composer.json", "{ not json");
+        fixture.write("composer.lock", r#"{"platform":{"php":"^7.4"}}"#);
+        assert_eq!(
+            resolve(&fixture.request(&fixture.sub(""), None))
+                .unwrap()
+                .version,
+            v(7, 4, 33)
+        );
     }
 
     #[test]
