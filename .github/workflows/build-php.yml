@@ -7,6 +7,13 @@ name: build-php
 # Builds are long and macOS runner minutes are the expensive ones, so the spc
 # tree is cached per (line × platform) and a wave can be narrowed with the
 # `lines` and `platforms` inputs.
+#
+# For a first wave on a fresh repository, narrow it deliberately:
+#
+#     lines: 8.3,8.4        platforms: darwin-arm64,linux-x86_64
+#
+# A cold full matrix is 28 jobs and several hours, which is an expensive way
+# to discover a typo in a publish step. Widen once one wave has completed.
 
 on:
   workflow_dispatch:
