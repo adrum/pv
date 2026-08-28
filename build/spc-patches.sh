@@ -79,9 +79,13 @@ repackage_lib() {
         src_dir="${SPC_DIR}/downloads/${name}"
     fi
     if [[ -z "${src_tarball}" && -z "${src_dir}" ]]; then
-        # Nothing to build from → this lib isn't needed in the current build
-        # (different ext set / different lib list). Silently skip rather
-        # than fail; we can only repackage what spc actually fetched.
+        # Nothing to build from. Usually that means this lib is not in the
+        # current build's lib set, which is fine — but it also happens when
+        # the glob simply does not match what spc named the download, and
+        # then this workaround quietly does nothing and the build dies later
+        # on a corrupt pre-built archive that nobody repackaged. Say so.
+        echo ">>> note: no source for ${name} matching '${src_glob}' in downloads/ —" \
+             "cannot repackage it if its pre-built archive turns out to be corrupt" >&2
         return 0
     fi
     echo ">>> Repackaging ${name} from source..."
@@ -834,17 +838,17 @@ apply_all_spc_patches() {
     repackage_lib gmp       'gmp-*.tar.*'        autoconf-static
     # brotli's pre-built CDN .txz is intermittently corrupt from this network
     # (pulled in by imagick via libjxl/libheif); build it from source. CMake-only.
-    repackage_lib brotli    'brotli-*.tar.*'     cmake-static
+    repackage_lib brotli    '*brotli-*.tar.*'    cmake-static
     # libaom's pre-built CDN .txz is persistently corrupt from this network
     # (pulled in by imagick via libheif/libavif for AVIF). spc fetches libaom
     # as a git checkout under downloads/libaom/, so the glob won't match a
     # tarball and repackage_lib falls back to that directory.
-    repackage_lib libaom    'libaom-*.tar.*'     libaom-cmake
+    repackage_lib libaom    '*libaom-*.tar.*'    libaom-cmake
     # More imagick-chain pre-builts that are corrupt / at risk on this CDN.
     # libwebp is confirmed corrupt; bzip2/lz4/xz sit *after* the multi-minute
     # source-codec builds in spc's link order, so build them up-front from
     # source rather than discover a corrupt pre-built ~15 min in.
-    repackage_lib libwebp   'webmproject-libwebp-*.tar.*' libwebp-cmake
+    repackage_lib libwebp   '*libwebp-*.tar.*'   libwebp-cmake
     repackage_lib bzip2     'bzip2-*.tar.*'      bzip2-make
     repackage_lib liblz4    'lz4-*.tar.*'        lz4-make
     repackage_lib xz        'xz-*.tar.*'         xz-static
