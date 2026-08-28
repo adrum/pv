@@ -33,7 +33,7 @@ silently. `pv doctor` looks for exactly this and says so.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/OWNER/pv/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/adrum/pv/main/install.sh | sh
 ```
 
 It downloads the build for your platform, verifies it against the published

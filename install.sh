@@ -3,7 +3,7 @@ set -eu
 
 # Install pv.
 #
-#   curl -fsSL https://raw.githubusercontent.com/OWNER/pv/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/adrum/pv/main/install.sh | sh
 #
 # Downloads the newest published pv for this platform, verifies it against the
 # sha256 published beside it, and puts the binary on disk. Nothing else — it
@@ -14,7 +14,7 @@ set -eu
 # runs before pv exists, on a machine we know nothing about. Everything it
 # needs is in the asset names and a .sha256 sidecar.
 
-REPO="${PV_REPO:-austindrummond/pv}"
+REPO="${PV_REPO:-adrum/pv}"
 BASE_URL="${PV_INSTALL_BASE_URL:-https://github.com/${REPO}/releases/latest/download}"
 BIN_DIR="${PV_BIN_DIR:-${HOME}/.local/bin}"
 

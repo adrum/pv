@@ -35,7 +35,7 @@ pub struct Config {
 /// fork or a mirror somewhere else.
 pub const DEFAULT_MANIFEST_URL: &str = match option_env!("PV_DEFAULT_MANIFEST_URL") {
     Some(url) => url,
-    None => "https://github.com/austindrummond/pv/releases/download/runtimes/manifest.json",
+    None => "https://github.com/adrum/pv/releases/download/runtimes/manifest.json",
 };
 
 impl Config {
