@@ -86,8 +86,17 @@ cp -R "${TREE}/." "${RELOCATED}/"
 
 RELOCATED_PHP="${RELOCATED}/bin/php"
 "${RELOCATED_PHP}" -v >/dev/null || fail "php does not run from a relocated tree"
-[[ "$("${RELOCATED_PHP}" -m | wc -l)" == "$(echo "${MODULES}" | wc -l)" ]] ||
+# Compare the lists themselves, not their lengths: a swapped extension keeps
+# the count identical, and counting a captured string against a fresh pipe is
+# an off-by-one waiting to happen.
+# Blank lines are dropped from both sides: `php -m` ends with one, and
+# command substitution strips it from the captured copy, so a naive
+# comparison reports a difference that is purely an artifact of the capture.
+modules_only() { tr '[:upper:]' '[:lower:]' | grep -v '^[[:space:]]*$'; }
+if ! diff <(printf '%s\n' "${MODULES}" | modules_only) \
+          <("${RELOCATED_PHP}" -m | modules_only) >/dev/null; then
     fail "the relocated tree reports a different extension list"
+fi
 
 # Extensions that reach for data files or shared libraries at runtime are
 # where relocation actually breaks, so touch them rather than trusting -m.
