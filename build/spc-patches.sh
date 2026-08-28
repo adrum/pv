@@ -47,7 +47,7 @@ wipe_troublesome_prebuilts() {
     # forces repackage_lib to build it from source, which is where that alias
     # gets added. Without this the pre-built wins and php fails at the final
     # link with undefined _tgetent/_tputs/_tgoto.
-    for lib in gmp ncurses; do
+    for lib in gmp ncurses libssh2; do
         rm -f "${SPC_DIR}/downloads/${lib}-aarch64-darwin.txz" 2>/dev/null || true
     done
 }
@@ -213,6 +213,49 @@ repackage_lib() {
                     -DCMAKE_INSTALL_LIBDIR=lib \
                     -DBUILD_SHARED_LIBS=OFF \
                     -DBROTLI_DISABLE_TESTS=ON \
+                    -DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                    -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+                cmake --build _build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+                cmake --install _build
+                touch "${work}/.skip-make-install"
+                ;;
+            libssh2-cmake)
+                # libssh2 needs a crypto backend, and at patch time the
+                # buildroot is empty — spc populates it later, during the
+                # build. Rather than depend on that ordering, unpack the
+                # OpenSSL archive already sitting in downloads/ into a scratch
+                # prefix and point cmake at it. Zlib compression is off so
+                # this needs exactly one dependency, not two.
+                local ssl_prefix="${SPC_DIR}/.ssl-prefix"
+                if [[ ! -f "${ssl_prefix}/lib/libcrypto.a" ]]; then
+                    local ssl_txz="${SPC_DIR}/downloads/openssl-aarch64-darwin.txz"
+                    if [[ -f "${ssl_txz}" ]] && txz_is_valid "${ssl_txz}"; then
+                        mkdir -p "${ssl_prefix}"
+                        tar -xf "${ssl_txz}" -C "${ssl_prefix}" --strip-components=1
+                    elif [[ -f "${SPC_DIR}/buildroot/lib/libcrypto.a" ]]; then
+                        ssl_prefix="${SPC_DIR}/buildroot"
+                    else
+                        # Failing here is deliberate. The pre-built archive
+                        # was already dropped, so carrying on just means spc
+                        # refetches the unusable one and dies later with a
+                        # message that says nothing about OpenSSL.
+                        echo ">>> error: no OpenSSL to build libssh2 against —" \
+                             "expected downloads/openssl-aarch64-darwin.txz" >&2
+                        exit 1
+                    fi
+                fi
+                cmake -S . -B _build \
+                    -DCMAKE_INSTALL_PREFIX="${work}/install" \
+                    -DCMAKE_INSTALL_LIBDIR=lib \
+                    -DBUILD_SHARED_LIBS=OFF \
+                    -DBUILD_EXAMPLES=OFF \
+                    -DBUILD_TESTING=OFF \
+                    -DENABLE_ZLIB_COMPRESSION=OFF \
+                    -DCRYPTO_BACKEND=OpenSSL \
+                    -DOPENSSL_ROOT_DIR="${ssl_prefix}" \
+                    -DOPENSSL_USE_STATIC_LIBS=ON \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
                     -DCMAKE_OSX_ARCHITECTURES=arm64 \
@@ -773,11 +816,21 @@ arm_legacy_php_buildconf_hook() {
     # SPC_DIR is exported so the sub-invocation's functions resolve php-src.
     # The export persists to `spc build` because spc-patches.sh is sourced into
     # build-static.sh's shell.
-    case "${PHP_SHORT:-}" in
+    # The caller's name for the PHP line. Falls back to PHP_SHORT for older
+    # callers — an unset variable here silently disarms every 7.4/8.0 patch
+    # and the build dies much later on "GD build test failed", which points
+    # nowhere near the real cause.
+    local line="${PHP_LINE:-${PHP_SHORT:-}}"
+    if [[ -z "${line}" ]]; then
+        echo ">>> warning: neither PHP_LINE nor PHP_SHORT is set — legacy php-src" \
+             "patches cannot be armed" >&2
+        return 0
+    fi
+    case "${line}" in
     7.4 | 8.0)
         export SPC_DIR
         export SPC_CMD_PREFIX_PHP_BUILDCONF="bash '${_SPC_PATCHES_SELF}' --post-extract-php-src && ./buildconf --force && sed -i.bak 's/.*GD build test failed.*/:/' configure && rm -f configure.bak"
-        echo ">>> Armed post-extract php-src hook for PHP ${PHP_SHORT} (libxml const/attr + intl C++17 + GD test + libphp archive name)"
+        echo ">>> Armed post-extract php-src hook for PHP ${line} (libxml const/attr + intl C++17 + GD test + libphp archive name)"
         ;;
     esac
 }
@@ -877,6 +930,10 @@ apply_all_spc_patches() {
     # package"), and wiping it just makes spc re-fetch the same bad archive —
     # so build it from source like the others.
     repackage_lib gmp       'gmp-*.tar.*'        autoconf-static
+    # libssh2's pre-built archive arrives unusable and deleting it only makes
+    # spc fetch the same one again, so ssh2 was the one advertised extension
+    # that could not be built. Source build, against the OpenSSL above.
+    repackage_lib libssh2   '*libssh2-*.tar.*'   libssh2-cmake
     # brotli's pre-built CDN .txz is intermittently corrupt from this network
     # (pulled in by imagick via libjxl/libheif); build it from source. CMake-only.
     repackage_lib brotli    '*brotli-*.tar.*'    cmake-static
