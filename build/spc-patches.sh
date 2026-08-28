@@ -41,8 +41,13 @@ wipe_troublesome_prebuilts() {
     # libs without a repackage_lib handler whose pre-built CDN serves
     # corruption from this network — force spc to re-fetch source.
     local lib
-    # shellcheck disable=SC2043  # one entry today; the list grows and shrinks
-    for lib in gmp; do
+    # ncurses is here for a different reason than the rest: its pre-built
+    # archive is fine, but it ships only the names ncurses itself installs,
+    # and libedit's .la asks the linker for -lcurses. Dropping the pre-built
+    # forces repackage_lib to build it from source, which is where that alias
+    # gets added. Without this the pre-built wins and php fails at the final
+    # link with undefined _tgetent/_tputs/_tgoto.
+    for lib in gmp ncurses; do
         rm -f "${SPC_DIR}/downloads/${lib}-aarch64-darwin.txz" 2>/dev/null || true
     done
 }
@@ -157,6 +162,12 @@ repackage_lib() {
                 # workdir so install can't escape. --disable-db-install
                 # skips compiling the DB at all (PHP / libedit only need
                 # the static .a libs + headers).
+                # --with-termlib is deliberately NOT passed: it moves the
+                # terminfo/termcap entry points into a separate libtinfo, and
+                # libedit's .la asks the linker only for -lcurses, so php then
+                # fails at the final link with undefined _tgetent/_tputs. Keep
+                # them inside the main library. --enable-termcap adds the
+                # termcap-compat entry points libedit actually calls.
                 unset TERMINFO TERMINFO_DIRS TIC TICDIR
                 CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC" \
                     ./configure --prefix="${work}/install" \
@@ -165,7 +176,7 @@ repackage_lib() {
                         --disable-db-install \
                         --without-shared --without-debug --without-ada \
                         --without-tests --without-manpages \
-                        --enable-widec --with-normal --with-termlib
+                        --enable-widec --with-normal --enable-termcap
                 ;;
             openssl-static)
                 # --openssldir hard-codes where libssl looks at RUNTIME for
@@ -313,6 +324,14 @@ repackage_lib() {
                 src_a="${work}/install/lib/lib${lib}w.a"
                 [[ -f "${src_a}" ]] && cp "${src_a}" "${work}/install/lib/lib${lib}.a"
             done
+            # libedit's .la asks the linker for -lcurses, the historical name
+            # ncurses installs only when it is configured as the system
+            # curses. Without that alias the link finds no terminfo and php
+            # fails at the very last step with undefined _tgetent/_tputs/
+            # _tgoto — an error that names libedit and says nothing about
+            # ncurses, after every library has already been built.
+            src_a="${work}/install/lib/libncursesw.a"
+            [[ -f "${src_a}" ]] && cp "${src_a}" "${work}/install/lib/libcurses.a"
         fi
     )
     # spc's post-extract pass on ICU reads bin/icu-config to rewrite the
@@ -449,6 +468,28 @@ guard_stale_buildroot() {
     if [[ ! -d "${SPC_DIR}/buildroot" ]]; then
         return
     fi
+
+    # A buildroot that was built somewhere else is poison. pkg-config files
+    # and libtool archives record absolute -L paths, so a buildroot copied or
+    # moved between trees hands the linker search paths that no longer exist;
+    # the build then dies with undefined symbols in some unrelated library
+    # (libedit missing terminfo, say) and nothing in that message points at
+    # the real cause. Detect it by its own recorded paths, not by where we
+    # think it came from.
+    local foreign
+    foreign="$(grep -rlE '(^|[^A-Za-z0-9_])/[^ ]*\.spc-cache/' \
+                    "${SPC_DIR}/buildroot/lib/pkgconfig" \
+                    "${SPC_DIR}/buildroot/lib" 2>/dev/null \
+               | while read -r f; do
+                     grep -qF "${SPC_DIR}" "${f}" || { echo "${f}"; break; }
+                 done)"
+    if [[ -n "${foreign}" ]]; then
+        echo ">>> buildroot references another build tree (${foreign##*/}) — wiping stale state"
+        rm -rf "${SPC_DIR}/buildroot"
+        rm -f "${SPC_DIR}/downloads/"*-aarch64-darwin.txz 2>/dev/null || true
+        return
+    fi
+
     if [[ -f "${SPC_DIR}/buildroot/lib/libcrypto.a" \
        && -f "${SPC_DIR}/buildroot/lib/libssl.a" \
        && -d "${SPC_DIR}/buildroot/include/openssl" ]]; then
