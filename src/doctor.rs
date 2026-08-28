@@ -12,7 +12,7 @@ use anyhow::Result;
 
 use crate::config::Config;
 use crate::resolve::{self, Request};
-use crate::{installs, net, paths, platform, shims};
+use crate::{installs, lookup, net, paths, platform, shims};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -90,6 +90,9 @@ pub fn run() -> Result<Vec<Finding>> {
         findings.extend(install_checks(&installed)?);
     }
 
+    if let Some(finding) = composer_check()? {
+        findings.push(finding);
+    }
     findings.push(resolution_check(&config, &installed)?);
     Ok(findings)
 }
@@ -150,7 +153,7 @@ fn path_checks() -> Result<Vec<Finding>> {
     // What the shell would actually run, which is the question users are
     // really asking. A stale shell hash shows up here as a path that does not
     // exist, or an old one.
-    match which_on_path("php") {
+    match lookup::on_path("php") {
         Some(found) if shims::is_pv_shim(&found)? => {
             findings.push(Finding::ok(format!(
                 "php on PATH is pv's shim ({})",
@@ -172,11 +175,88 @@ fn path_checks() -> Result<Vec<Finding>> {
     Ok(findings)
 }
 
+/// Whether the Composer on PATH will actually run under pv's PHP.
+///
+/// pv does not ship Composer and should not — but it does own which PHP a PHP
+/// tool runs under, and this is the case people get wrong without noticing. A
+/// `composer.phar` with a `#!/usr/bin/env php` shebang resolves through PATH
+/// and lands on pv's shim, which is correct. A package manager's Composer is
+/// usually a wrapper with that package manager's PHP written into it as an
+/// absolute path, and it will keep using that PHP no matter what pv resolves,
+/// silently, forever.
+fn composer_check() -> Result<Option<Finding>> {
+    let Some(composer) = lookup::on_path("composer") else {
+        return Ok(None);
+    };
+    let Some(bound) = php_bound_into(&composer)? else {
+        return Ok(Some(Finding::ok(format!(
+            "composer on PATH runs under the resolved php ({})",
+            composer.display()
+        ))));
+    };
+
+    let home = paths::home()?;
+    if bound.starts_with(&home) {
+        return Ok(Some(Finding::ok(format!(
+            "composer on PATH is bound to pv's php ({})",
+            composer.display()
+        ))));
+    }
+
+    Ok(Some(Finding::warn(
+        format!(
+            "composer at {} is bound to {} and ignores pv",
+            composer.display(),
+            bound.display()
+        ),
+        "that composer will keep using that PHP whatever pv resolves — run it as \
+         `pv run composer …`, or install composer.phar (its `#!/usr/bin/env php` \
+         shebang resolves through pv)",
+    )))
+}
+
+/// The absolute PHP path baked into a wrapper script, if there is one.
+///
+/// Reads only the head of the file: a phar is megabytes of binary, and the
+/// interesting part of a wrapper is always in the first few lines.
+fn php_bound_into(command: &Path) -> Result<Option<PathBuf>> {
+    use std::io::Read as _;
+
+    let Ok(mut file) = std::fs::File::open(command) else {
+        return Ok(None);
+    };
+    let mut head = vec![0u8; 4096];
+    let read = file.read(&mut head).unwrap_or(0);
+    let head = String::from_utf8_lossy(&head[..read]);
+    if !head.starts_with("#!") {
+        return Ok(None);
+    }
+
+    // An absolute path whose last component is php or php<version>, anywhere
+    // in the wrapper: `#!/opt/homebrew/opt/php@8.3/bin/php` and
+    // `exec "/usr/local/Cellar/php/8.3.0/bin/php" …` are the same problem.
+    for token in head.split(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+        if !token.starts_with('/') {
+            continue;
+        }
+        let path = Path::new(token);
+        let is_php = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name == "php" || name.starts_with("php8") || name.starts_with("php7"))
+            .unwrap_or(false);
+        if is_php && path.is_file() {
+            return Ok(Some(path.to_path_buf()));
+        }
+    }
+    Ok(None)
+}
+
 fn install_checks(installed: &[crate::version::Version]) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     for version in installed {
         let php = installs::binary_path(version, "php")?;
-        if !is_executable(&php) {
+        if !lookup::is_executable(&php) {
             findings.push(Finding::problem(
                 format!("{version}: bin/php is not executable"),
                 format!("reinstall it with `pv install {version} --force`"),
@@ -254,21 +334,6 @@ fn resolution_check(config: &Config, installed: &[crate::version::Version]) -> R
         )),
         Err(err) => Finding::problem(format!("here, php does not resolve: {err}"), "see above"),
     })
-}
-
-/// First `command` on PATH, the way a shell would find it.
-pub fn which_on_path(command: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(command))
-        .find(|candidate| is_executable(candidate))
-}
-
-pub fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
 }
 
 /// Render findings, and whether anything is actually broken.
