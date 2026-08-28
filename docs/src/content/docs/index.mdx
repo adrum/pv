@@ -1,0 +1,46 @@
+---
+title: pv
+description: A fast PHP version manager — prebuilt, relocatable PHP runtimes and per-directory version resolution.
+template: splash
+hero:
+  tagline: Install and switch PHP versions in seconds. No compiler, no dependencies.
+  actions:
+    - text: Get started
+      link: guides/getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/adrum/pv
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+```sh
+pv install 8.4          # or 8.4.3, or latest
+pv pin 8.4              # writes .php-version here
+php -v                  # PHP 8.4.x
+```
+
+<CardGrid stagger>
+  <Card title="Seconds, not minutes" icon="rocket">
+    Downloads a prebuilt, relocatable PHP for your platform and unpacks it. A
+    67 MB runtime installs in under ten seconds — there is no compiler in the
+    path.
+  </Card>
+  <Card title="Correct outside your shell" icon="approve-check">
+    Resolution happens through real files on `PATH`, not a shell hook. Editors,
+    language servers, CI runners, cron jobs and git hooks inherit `PATH` and
+    nothing else — so they get the same PHP your terminal does.
+  </Card>
+  <Card title="Composer stays" icon="information">
+    pv does not resolve dependencies and does not replace Composer. It is the
+    runtime half: getting a correct PHP onto the machine and pointing the right
+    commands at it.
+  </Card>
+  <Card title="Verified downloads" icon="seti:lock">
+    Every artifact is published with its sha256 and checked before extraction.
+    Verification fails closed — a missing or malformed hash is an error, never
+    a reason to skip the check.
+  </Card>
+</CardGrid>

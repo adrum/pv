@@ -210,6 +210,26 @@ verifying that every requested extension is present, that nothing links a
 build-host-only library, and that the tree still works from a directory it has
 never seen. `BUILD-NOTES.md` documents the landmines.
 
+## Documentation
+
+Full docs at **https://adrum.github.io/pv** — guides, the command reference,
+and the extension and platform tables, which are generated from the build
+scripts so they cannot drift from what a wave actually ships.
+
+The site lives in `docs/` (Astro + Starlight):
+
+```sh
+cd docs && npm install && npm run dev
+```
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). The PHP artifacts pv downloads are a separate
+matter: each bundles roughly fifty statically linked libraries and carries
+their license texts inside the tarball. See
+[`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md), including an unresolved
+question about LGPL components and static linking.
+
 ## No telemetry
 
 `pv` reports nothing anywhere. It talks to the network when you install,
