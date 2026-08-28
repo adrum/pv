@@ -68,6 +68,13 @@ jobs:
           mkdir -p dist
           tar -czf "dist/${root}.tar.gz" -C stage "${root}"
           (cd dist && shasum -a 256 "${root}.tar.gz" > "${root}.tar.gz.sha256")
+          # An unversioned copy alongside the versioned one, so install.sh can
+          # fetch through the releases/latest redirect without discovering the
+          # current version first — which would mean parsing JSON in POSIX sh,
+          # on a machine that does not have pv yet.
+          cp "dist/${root}.tar.gz" "dist/pv-${{ matrix.platform }}.tar.gz"
+          (cd dist && shasum -a 256 "pv-${{ matrix.platform }}.tar.gz" \
+              > "pv-${{ matrix.platform }}.tar.gz.sha256")
           ls -l dist
 
       - uses: actions/upload-artifact@v4

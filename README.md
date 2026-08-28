@@ -32,8 +32,15 @@ silently. `pv doctor` looks for exactly this and says so.
 
 ## Install
 
-Download the archive for your platform from the
-[releases](../../releases) page, or build from source:
+```sh
+curl -fsSL https://raw.githubusercontent.com/OWNER/pv/main/install.sh | sh
+```
+
+It downloads the build for your platform, verifies it against the published
+sha256, and puts `pv` in `~/.local/bin` (override with `PV_BIN_DIR`). It does
+not touch your shell profile — that line is yours to paste, below.
+
+Or from source:
 
 ```sh
 cargo build --release
