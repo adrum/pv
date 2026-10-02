@@ -1,9 +1,11 @@
 ---
-title: pv
-description: A fast PHP version manager — prebuilt, relocatable PHP runtimes and per-directory version resolution.
+title: Every PHP your projects need, in seconds
+description: pv installs prebuilt, relocatable PHP runtimes and resolves the right version per directory — no compiler, no Docker, no system PHP to fight.
 template: splash
+banner:
+  content: 'pv is pre-release: <strong>v0.1.0 is not published yet</strong>, so <code>install.sh</code> will not find a build until it is. Build from source in the meantime.'
 hero:
-  tagline: Install and switch PHP versions in seconds. No compiler, no dependencies.
+  tagline: One binary. Any PHP from 7.4 to 8.5, with the extensions already in it. The right version in every directory — including the ones your editor and your CI runner open.
   actions:
     - text: Get started
       link: guides/getting-started/
@@ -14,33 +16,95 @@ hero:
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, Aside, Steps } from '@astrojs/starlight/components';
 
 ```sh
-pv install 8.4          # or 8.4.3, or latest
-pv pin 8.4              # writes .php-version here
-php -v                  # PHP 8.4.x
+pv install 8.4          # a complete PHP, extensions included
+cd ~/code/legacy && pv pin 7.4
+php -v                  # PHP 7.4.33
+cd ~/code/new && php -v # PHP 8.4.21
 ```
 
-<CardGrid stagger>
-  <Card title="Seconds, not minutes" icon="rocket">
-    Downloads a prebuilt, relocatable PHP for your platform and unpacks it. A
-    67 MB runtime installs in under ten seconds — there is no compiler in the
-    path.
+## The problem is not installing PHP once
+
+It is installing PHP *five times* — one per project that pinned a different
+version — and keeping each one straight.
+
+Today that means a package manager that holds one PHP at a time and breaks the
+others when it upgrades. Or a `./configure` incantation, forty minutes of
+compiling, and a `php -m` that is missing the one extension your app needs. Or
+Docker, and now every `php` you type is a container boundary away from your
+editor, your debugger and your test runner.
+
+pv downloads a finished PHP. No compiler, no toolchain, no system packages. It
+unpacks and it runs.
+
+<CardGrid>
+  <Card title="Everything already compiled in" icon="setting">
+    60 extensions in every build — `intl`, `imagick`, `gd`, `redis`, `mongodb`,
+    `sodium`, all three PDO drivers — plus **Xdebug**, which has to ship as a
+    shared library and usually does not ship at all.
   </Card>
-  <Card title="Correct outside your shell" icon="approve-check">
-    Resolution happens through real files on `PATH`, not a shell hook. Editors,
+  <Card title="Right outside your terminal too" icon="approve-check">
+    Resolution runs through real files on `PATH`, not a shell hook. Editors,
     language servers, CI runners, cron jobs and git hooks inherit `PATH` and
-    nothing else — so they get the same PHP your terminal does.
+    nothing else — a hook never fires for them, and they quietly use the wrong
+    PHP. pv's shims do not have that problem.
   </Card>
-  <Card title="Composer stays" icon="information">
-    pv does not resolve dependencies and does not replace Composer. It is the
-    runtime half: getting a correct PHP onto the machine and pointing the right
-    commands at it.
+  <Card title="The old versions, too" icon="seti:php">
+    7.4 and 8.0 are where a version manager earns its keep, and they are the
+    hardest to build — modern libxml2 and ICU broke their source outright. pv
+    patches around that so the lines you are actually stuck on are first-class.
   </Card>
-  <Card title="Verified downloads" icon="seti:lock">
-    Every artifact is published with its sha256 and checked before extraction.
-    Verification fails closed — a missing or malformed hash is an error, never
-    a reason to skip the check.
+  <Card title="Verified, or not installed" icon="seti:lock">
+    Every artifact is checked against a published sha256 before extraction, and
+    verification fails closed: a missing or malformed hash is an error, never a
+    reason to skip the check.
   </Card>
 </CardGrid>
+
+## What a version switch costs
+
+<Steps>
+
+1. **Install once per version.** `pv install 8.4` fetches one tarball and
+   unpacks it. Nothing is compiled, so this takes about as long as the
+   download.
+
+2. **Pin per project.** `pv pin 7.4` writes a one-line `.php-version` you
+   commit. Everyone on the project gets the same runtime.
+
+3. **Switch by changing directory.** No shell reload, no daemon, no
+   `use` command. `cd` and `php` is a different PHP.
+
+</Steps>
+
+## What pv is not
+
+**It does not replace Composer.** pv does not resolve dependencies and has no
+opinion about your `vendor/` directory. It is the runtime half: getting a
+correct PHP onto the machine and pointing the right commands at it. Composer
+stays exactly as it is — and `pv run composer install` runs it under whichever
+PHP the current directory resolves to.
+
+**It does not manage your sites.** No web server, no process supervisor, no
+`.test` domains. One job.
+
+<Aside type="note" title="Why the extensions are fixed">
+These builds are statically linked, which is what makes them relocatable and
+dependency-free — and it means PHP cannot `dlopen` an extension that was not
+compiled in, so `pecl install` does not work against them. The
+[extension list](/pv/reference/extensions/) is the supported surface, and it is
+generated from the build scripts rather than written by hand, so it cannot
+claim something a build does not ship.
+</Aside>
+
+## Where it runs
+
+macOS and Linux, on both Apple Silicon and x86_64, each built on a native
+runner. The client itself is a single static Rust binary with no runtime
+dependencies. Windows is not supported.
+
+See [platforms](/pv/reference/platforms/) for the full matrix and the one
+caveat that matters on Linux — a glibc floor, taken deliberately so Xdebug can
+load.
