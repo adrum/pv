@@ -22,6 +22,16 @@ pub enum Level {
 }
 
 impl Level {
+    /// Stable machine name, for `--format json`. Unlike `tag`, this is
+    /// interface and must not be reworded.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Level::Ok => "ok",
+            Level::Warn => "warn",
+            Level::Problem => "problem",
+        }
+    }
+
     fn tag(self) -> &'static str {
         match self {
             Level::Ok => "ok      ",

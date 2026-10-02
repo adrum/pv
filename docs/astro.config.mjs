@@ -35,6 +35,7 @@ export default defineConfig({
             { label: 'Extensions', slug: 'reference/extensions' },
             { label: 'Platforms', slug: 'reference/platforms' },
             { label: 'Integrity and licensing', slug: 'reference/integrity' },
+            { label: 'Scripting pv', slug: 'reference/scripting' },
           ],
         },
       ],

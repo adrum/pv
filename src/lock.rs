@@ -18,6 +18,8 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::exit::{self, Failed};
+
 /// Held for as long as the install runs; released when dropped.
 #[derive(Debug)]
 pub struct Lock {
@@ -44,10 +46,13 @@ pub fn acquire(directory: &Path, name: &str, activity: &str) -> Result<Lock> {
 
     match file.try_lock() {
         Ok(()) => Ok(Lock { _file: file }),
-        Err(std::fs::TryLockError::WouldBlock) => anyhow::bail!(
-            "another pv process is already {activity} — wait for it to finish, \
-             then try again"
-        ),
+        Err(std::fs::TryLockError::WouldBlock) => Err(Failed::new(
+            exit::BUSY,
+            format!(
+                "another pv process is already {activity} — wait for it to finish, \
+                 then try again"
+            ),
+        )),
         Err(std::fs::TryLockError::Error(err)) => {
             Err(err).with_context(|| format!("could not lock {}", path.display()))
         }

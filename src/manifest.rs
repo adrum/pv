@@ -32,6 +32,7 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+use crate::exit::{self, Failed};
 use crate::net;
 use crate::version::Version;
 
@@ -49,18 +50,24 @@ impl Artifact {
     pub fn verified_sha256(&self) -> Result<&str> {
         let sha = self.sha256.trim();
         if sha.is_empty() {
-            bail!(
-                "the manifest entry for {} has no sha256 — refusing to install an \
-                 unverifiable artifact",
-                self.file
-            );
+            return Err(Failed::new(
+                exit::VERIFICATION,
+                format!(
+                    "the manifest entry for {} has no sha256 — refusing to install an \
+                     unverifiable artifact",
+                    self.file
+                ),
+            ));
         }
         if sha.len() != 64 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
-            bail!(
-                "the manifest entry for {} has a malformed sha256 (`{sha}`) — refusing to \
-                 install an unverifiable artifact",
-                self.file
-            );
+            return Err(Failed::new(
+                exit::VERIFICATION,
+                format!(
+                    "the manifest entry for {} has a malformed sha256 (`{sha}`) — refusing \
+                     to install an unverifiable artifact",
+                    self.file
+                ),
+            ));
         }
         Ok(sha)
     }
@@ -112,14 +119,20 @@ impl Manifest {
     }
 
     pub fn php_artifact(&self, version: &Version, platform: &str) -> Result<&Artifact> {
-        let builds = self.php.get(&version.to_string()).with_context(|| {
-            format!("PHP {version} is not published — run `pv list --remote` to see what is")
+        let builds = self.php.get(&version.to_string()).ok_or_else(|| {
+            Failed::new(
+                exit::NOT_PUBLISHED,
+                format!("PHP {version} is not published — run `pv list --remote` to see what is"),
+            )
         })?;
-        builds.get(platform).with_context(|| {
+        builds.get(platform).ok_or_else(|| {
             let available: Vec<&str> = builds.keys().map(String::as_str).collect();
-            format!(
-                "PHP {version} is not published for {platform} — published for: {}",
-                available.join(", ")
+            Failed::new(
+                exit::NOT_PUBLISHED,
+                format!(
+                    "PHP {version} is not published for {platform} — published for: {}",
+                    available.join(", ")
+                ),
             )
         })
     }

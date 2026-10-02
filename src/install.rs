@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, bail};
 
 use crate::config::Config;
+use crate::exit::{self, Failed};
 use crate::installs::{self, ArtifactRecord};
 use crate::manifest::Manifest;
 use crate::net;
@@ -24,10 +25,13 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
 
     let available = manifest.php_versions(&platform);
     let Some(version) = selector.best(&available) else {
-        bail!(
-            "no published PHP {selector} for {platform} — run `pv list --remote` to see \
-             what is available"
-        );
+        return Err(Failed::new(
+            exit::NOT_PUBLISHED,
+            format!(
+                "no published PHP {selector} for {platform} — run `pv list --remote` to \
+                 see what is available"
+            ),
+        ));
     };
     let artifact = manifest.php_artifact(&version, &platform)?;
     let expected = artifact.verified_sha256()?;
@@ -64,11 +68,14 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
 
     if downloaded != expected {
         let _ = std::fs::remove_file(&cached);
-        bail!(
-            "{} does not match the manifest — expected sha256 {expected}, got {downloaded}. \
-             Nothing was installed.",
-            artifact.file
-        );
+        return Err(Failed::new(
+            exit::VERIFICATION,
+            format!(
+                "{} does not match the manifest — expected sha256 {expected}, got \
+                 {downloaded}. Nothing was installed.",
+                artifact.file
+            ),
+        ));
     }
 
     let target = paths::version_dir(&version.to_string())?;

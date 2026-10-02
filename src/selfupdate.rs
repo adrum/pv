@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, bail};
 
 use crate::config::Config;
+use crate::exit::{self, Failed};
 use crate::manifest::Manifest;
 use crate::version::Version;
 use crate::{archive, net, paths, platform};
@@ -27,11 +28,14 @@ pub fn update(force: bool) -> Result<()> {
     let downloaded = net::download(&artifact.url, &cached, artifact.size)?;
     if downloaded != expected {
         let _ = std::fs::remove_file(&cached);
-        bail!(
-            "{} does not match the manifest — expected sha256 {expected}, got {downloaded}. \
-             pv was not replaced.",
-            artifact.file
-        );
+        return Err(Failed::new(
+            exit::VERIFICATION,
+            format!(
+                "{} does not match the manifest — expected sha256 {expected}, got \
+                 {downloaded}. pv was not replaced.",
+                artifact.file
+            ),
+        ));
     }
 
     let staging = paths::cache_dir()?.join(format!(".pv-{latest}.incoming"));

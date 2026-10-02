@@ -4,6 +4,7 @@ mod archive;
 mod cache;
 mod config;
 mod doctor;
+mod exit;
 mod install;
 mod installs;
 mod lock;
@@ -35,8 +36,40 @@ use crate::version::{Selector, Version};
     disable_help_subcommand = true
 )]
 struct Cli {
+    /// Output format for the commands a script would call
+    #[arg(long, value_enum, default_value_t = Format::Text, global = true)]
+    format: Format,
     #[command(subcommand)]
     command: Command,
+}
+
+/// How a command reports its result.
+///
+/// The rule that makes `json` worth anything: **data on stdout, diagnostics on
+/// stderr, always**. If a progress line or a warning can land in stdout, the
+/// JSON is unparseable and a caller cannot tell a corrupt install from a
+/// chatty one. So `json` also suppresses the human-facing chatter entirely —
+/// it is a machine's view, not a decorated one.
+#[derive(Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
+enum Format {
+    Text,
+    Json,
+}
+
+impl Format {
+    fn is_json(self) -> bool {
+        self == Format::Json
+    }
+
+    /// Print a value as JSON, or run the human-facing branch.
+    fn emit(self, value: serde_json::Value, text: impl FnOnce()) -> Result<()> {
+        if self.is_json() {
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        } else {
+            text();
+        }
+        Ok(())
+    }
 }
 
 #[derive(Subcommand)]
@@ -146,33 +179,60 @@ fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
         Err(err) => {
+            // Diagnostics on stderr, always: stdout belongs to the data a
+            // caller is parsing, even when the command fails.
             eprintln!("pv: {err:#}");
-            ExitCode::FAILURE
+            ExitCode::from(exit::code_for(&err))
         }
     }
 }
 
 fn run() -> Result<ExitCode> {
-    match Cli::parse().command {
+    let cli = Cli::parse();
+    let format = cli.format;
+    match cli.command {
         Command::Install { version, force } => cmd_install(&version, force),
         Command::Uninstall { version } => cmd_uninstall(&version),
-        Command::List(args) => cmd_list(args.remote, args.all),
+        Command::List(args) => cmd_list(args.remote, args.all, format),
         Command::Pin { version } => cmd_pin(&version),
         Command::Default { version } => cmd_default(version.as_deref()),
-        Command::Which { command } => cmd_which(&command),
+        Command::Which { command } => cmd_which(&command, format),
         Command::Run { command, args } => cmd_run(&command, &args),
         Command::Resolve {
             pinned_only,
             source,
-        } => cmd_resolve(pinned_only, source),
+        } => cmd_resolve(pinned_only, source, format),
         Command::Init { shell, hook } => cmd_init(&shell, hook),
         Command::Rehash => cmd_rehash(),
         Command::Cache(command) => cmd_cache(command),
-        Command::Doctor => cmd_doctor(),
+        Command::Doctor => cmd_doctor(format),
         Command::Zelf(SelfCommand::Update { force }) => {
             selfupdate::update(force)?;
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+/// A stable identifier for which resolution step answered.
+///
+/// Deliberately not the Display text, which is written for people and may be
+/// reworded; these strings are interface and must not drift.
+fn source_kind(source: &resolve::Source) -> &'static str {
+    match source {
+        resolve::Source::Environment => "environment",
+        resolve::Source::VersionFile(_) => "version-file",
+        resolve::Source::Composer(_, _) => "composer",
+        resolve::Source::Default => "default",
+        resolve::Source::NewestInstalled => "newest-installed",
+    }
+}
+
+fn source_path(source: &resolve::Source) -> Option<String> {
+    match source {
+        resolve::Source::VersionFile(path) | resolve::Source::Composer(path, _) => {
+            Some(path.display().to_string())
+        }
+        _ => None,
     }
 }
 
@@ -258,7 +318,7 @@ fn cmd_uninstall(version: &str) -> Result<ExitCode> {
 /// Patches per minor line shown by `pv list --remote` without `--all`.
 const REMOTE_PATCHES_PER_LINE: usize = 3;
 
-fn cmd_list(remote: bool, all: bool) -> Result<ExitCode> {
+fn cmd_list(remote: bool, all: bool, format: Format) -> Result<ExitCode> {
     let installed = installs::installed()?;
 
     if remote {
@@ -267,7 +327,10 @@ fn cmd_list(remote: bool, all: bool) -> Result<ExitCode> {
         let manifest = manifest::Manifest::fetch(&config.manifest_url())?;
         let available = manifest.php_versions(&platform);
         if available.is_empty() {
-            println!("no PHP builds published for {platform}");
+            format.emit(
+                serde_json::json!({ "platform": platform, "available": [] }),
+                || println!("no PHP builds published for {platform}"),
+            )?;
             return Ok(ExitCode::SUCCESS);
         }
 
@@ -289,39 +352,76 @@ fn cmd_list(remote: bool, all: bool) -> Result<ExitCode> {
         };
         let hidden = available.len() - shown.len();
 
-        for version in shown.iter().rev() {
-            let marker = if installed.contains(version) {
-                " (installed)"
-            } else {
-                ""
-            };
-            println!("{version}{marker}");
-        }
-        if hidden > 0 {
-            println!(
-                "\n{hidden} older {} not shown — `pv list --remote --all` lists them, and \
-                 any of them installs by exact version",
-                if hidden == 1 { "patch" } else { "patches" }
-            );
-        }
+        // JSON always carries the whole catalogue: the trimming exists to keep
+        // a terminal listing readable, and silently handing a caller a subset
+        // would make it miss versions it can perfectly well install.
+        format.emit(
+            serde_json::json!({
+                "platform": platform,
+                "available": available.iter().rev().map(|version| serde_json::json!({
+                    "version": version.to_string(),
+                    "installed": installed.contains(version),
+                })).collect::<Vec<_>>(),
+            }),
+            || {
+                for version in shown.iter().rev() {
+                    let marker = if installed.contains(version) {
+                        " (installed)"
+                    } else {
+                        ""
+                    };
+                    println!("{version}{marker}");
+                }
+                if hidden > 0 {
+                    println!(
+                        "\n{hidden} older {} not shown — `pv list --remote --all` lists \
+                         them, and any of them installs by exact version",
+                        if hidden == 1 { "patch" } else { "patches" }
+                    );
+                }
+            },
+        )?;
         return Ok(ExitCode::SUCCESS);
     }
 
     if installed.is_empty() {
-        println!("no PHP installed — run `pv install 8.4`");
+        format.emit(serde_json::json!({ "installed": [] }), || {
+            println!("no PHP installed — run `pv install 8.4`")
+        })?;
         return Ok(ExitCode::SUCCESS);
     }
 
     // Marking the active one is the reason this command exists.
     let active = current_resolution().ok();
-    for version in installed.iter().rev() {
-        match &active {
-            Some(resolution) if resolution.version == *version => {
-                println!("* {version}  ({})", resolution.source);
+    let is_active = |version: &Version| {
+        active
+            .as_ref()
+            .is_some_and(|resolution| resolution.version == *version)
+    };
+    format.emit(
+        serde_json::json!({
+            "installed": installed.iter().rev().map(|version| serde_json::json!({
+                "version": version.to_string(),
+                "active": is_active(version),
+                "path": installs::bin_dir(version).ok().map(|p| p.display().to_string()),
+            })).collect::<Vec<_>>(),
+            "active": active.as_ref().map(|resolution| serde_json::json!({
+                "version": resolution.version.to_string(),
+                "source": source_kind(&resolution.source),
+                "source_path": source_path(&resolution.source),
+            })),
+        }),
+        || {
+            for version in installed.iter().rev() {
+                if is_active(version) {
+                    let source = active.as_ref().expect("active is some").source.to_string();
+                    println!("* {version}  ({source})");
+                } else {
+                    println!("  {version}");
+                }
             }
-            _ => println!("  {version}"),
-        }
-    }
+        },
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -362,11 +462,20 @@ fn cmd_default(version: Option<&str>) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_which(command: &str) -> Result<ExitCode> {
+fn cmd_which(command: &str, format: Format) -> Result<ExitCode> {
     // Read-only, always: resolve and print, never install, never create state.
     // Shims depend on this, and so do scripts asking "what would run here?".
     let resolution = current_resolution()?;
-    println!("{}", locate(&resolution.version, command)?.path.display());
+    let located = locate(&resolution.version, command)?;
+    format.emit(
+        serde_json::json!({
+            "command": command,
+            "path": located.path.display().to_string(),
+            "version": resolution.version.to_string(),
+            "from": if located.from_path { "path" } else { "version" },
+        }),
+        || println!("{}", located.path.display()),
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -449,13 +558,18 @@ fn locate(version: &Version, command: &str) -> Result<Located> {
 /// comes from a fallback rather than a pin: the hook exports what this prints,
 /// and exporting a fallback would freeze it, outranking the `.php-version` of
 /// every directory the shell later moves into.
-fn cmd_resolve(pinned_only: bool, source: bool) -> Result<ExitCode> {
+fn cmd_resolve(pinned_only: bool, source: bool, format: Format) -> Result<ExitCode> {
     let resolution = match current_resolution() {
         Ok(resolution) => resolution,
         // Nothing resolves here. For the hook that means "clear the override",
         // which is a silent success rather than an error the shell must cope
         // with on every prompt.
-        Err(_) if pinned_only => return Ok(ExitCode::SUCCESS),
+        Err(_) if pinned_only => {
+            if format.is_json() {
+                println!("null");
+            }
+            return Ok(ExitCode::SUCCESS);
+        }
         Err(err) => return Err(err),
     };
 
@@ -466,14 +580,30 @@ fn cmd_resolve(pinned_only: bool, source: bool) -> Result<ExitCode> {
             | resolve::Source::Composer(_, _)
     );
     if pinned_only && !pinned {
+        if format.is_json() {
+            println!("null");
+        }
         return Ok(ExitCode::SUCCESS);
     }
 
-    if source {
-        println!("{} ({})", resolution.version, resolution.source);
-    } else {
-        println!("{}", resolution.version);
-    }
+    // `source` is the field that answers "why am I getting this version?"
+    // without a second command, which is the question a caller actually has.
+    format.emit(
+        serde_json::json!({
+            "version": resolution.version.to_string(),
+            "binary": locate(&resolution.version, "php").ok().map(|l| l.path.display().to_string()),
+            "source": source_kind(&resolution.source),
+            "source_path": source_path(&resolution.source),
+            "pinned": pinned,
+        }),
+        || {
+            if source {
+                println!("{} ({})", resolution.version, resolution.source);
+            } else {
+                println!("{}", resolution.version);
+            }
+        },
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -540,10 +670,23 @@ fn cmd_rehash() -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_doctor() -> Result<ExitCode> {
+fn cmd_doctor(format: Format) -> Result<ExitCode> {
     let findings = doctor::run()?;
     let (report, healthy) = doctor::report(&findings);
-    print!("{report}");
+    format.emit(
+        serde_json::json!({
+            "healthy": healthy,
+            "findings": findings
+                .iter()
+                .map(|finding| serde_json::json!({
+                    "level": finding.level.as_str(),
+                    "headline": finding.headline,
+                    "advice": finding.advice,
+                }))
+                .collect::<Vec<_>>(),
+        }),
+        || print!("{report}"),
+    )?;
     Ok(if healthy {
         ExitCode::SUCCESS
     } else {

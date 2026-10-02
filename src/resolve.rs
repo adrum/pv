@@ -18,9 +18,10 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::config::Strategy;
+use crate::exit::{self, Failed};
 use crate::version::{Selector, Version, best_matching_constraint};
 
 pub const VERSION_FILE: &str = ".php-version";
@@ -115,17 +116,23 @@ pub fn resolve(request: &Request<'_>) -> Result<Resolution> {
             version: *version,
             source: Source::NewestInstalled,
         }),
-        None => bail!("no PHP installed — run `pv install 8.4` to get one"),
+        None => Err(Failed::new(
+            exit::NOTHING_INSTALLED,
+            "no PHP installed — run `pv install 8.4` to get one",
+        )),
     }
 }
 
 fn pick(request: &Request<'_>, selector: &Selector, source: Source) -> Result<Resolution> {
     match selector.best(request.installed) {
         Some(version) => Ok(Resolution { version, source }),
-        None => bail!(
-            "PHP {selector} is required by {source} but is not installed — \
-             run `pv install {selector}`"
-        ),
+        None => Err(Failed::new(
+            exit::NOT_INSTALLED,
+            format!(
+                "PHP {selector} is required by {source} but is not installed — \
+                 run `pv install {selector}`"
+            ),
+        )),
     }
 }
 

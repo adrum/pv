@@ -72,6 +72,7 @@ eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 | `pv rehash` | regenerate the shims |
 | `pv cache status\|prune\|clear` | inspect or clear downloaded tarballs |
 | `pv doctor` | check the installation |
+| `--format json` | machine-readable output for `resolve`, `which`, `list`, `doctor` |
 | `pv self update` | replace this binary with the newest build |
 
 ## How a version is chosen

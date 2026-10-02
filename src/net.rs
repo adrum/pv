@@ -5,6 +5,8 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+
+use crate::exit::{self, Failed};
 use sha2::{Digest, Sha256};
 
 const USER_AGENT: &str = concat!("pv/", env!("CARGO_PKG_VERSION"));
@@ -21,7 +23,7 @@ pub fn fetch_text(url: &str) -> Result<String> {
     let mut response = agent()
         .get(url)
         .call()
-        .with_context(|| format!("GET {url} failed"))?;
+        .map_err(|err| Failed::new(exit::NETWORK, format!("GET {url} failed: {err}")))?;
     response
         .body_mut()
         .read_to_string()
@@ -43,7 +45,7 @@ pub fn download(url: &str, dest: &Path, expected_size: Option<u64>) -> Result<St
     let mut response = agent()
         .get(url)
         .call()
-        .with_context(|| format!("GET {url} failed"))?;
+        .map_err(|err| Failed::new(exit::NETWORK, format!("GET {url} failed: {err}")))?;
     let total = response
         .headers()
         .get("content-length")
