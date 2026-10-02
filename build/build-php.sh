@@ -87,7 +87,14 @@ SHARED_EXTENSIONS="${PHP_SHARED_EXTENSIONS:-xdebug}"
 
 # onig is what flips mbstring's configure to --enable-mbregex; libavif gives
 # GD its AVIF codec (PHP 8.1+ only — stripped for older lines below).
-EXTRA_LIBS="${PHP_EXTRA_LIBS:-onig,libavif}"
+#
+# nghttp2 gives curl HTTP/2. Without it, Symfony's HttpClient::create() finds
+# curl_version() missing CURL_VERSION_HTTP2 and falls back to its Amp client,
+# whose stream-select loop polls once a second — every request stalls by up to
+# a second even though curl was there and would have been instant. HTTP/3 is
+# deliberately not added: the fallback check only looks for HTTP/2, and QUIC
+# needs a much heavier ngtcp2/nghttp3 lift for no benefit here.
+EXTRA_LIBS="${PHP_EXTRA_LIBS:-onig,libavif,nghttp2}"
 
 # Xdebug source override, for PHP lines the newest Xdebug dropped.
 XDEBUG_URL=""
@@ -118,6 +125,13 @@ case "${PHP_LINE}" in
         # probe as "no" makes it fall through to C11; pinning an explicit C11
         # flag stops a future compiler default from silently taking over.
         export SPC_EXTRA_PHP_VARS="${SPC_EXTRA_PHP_VARS:+${SPC_EXTRA_PHP_VARS} }ac_cv_prog_cc_c23=no ac_cv_prog_cc_c11=-std=gnu11"
+        ;;
+    8.1)
+        # Xdebug 3.5 supports 8.2-8.5 only, and spc always resolves the newest
+        # release — currently a 3.6 alpha whose configure floor is 8.2. Pin the
+        # last series that covers this line; 3.4.7 spans 7.4-8.5, so it is the
+        # same pin 8.0 uses.
+        XDEBUG_URL="https://xdebug.org/files/xdebug-3.4.7.tgz"
         ;;
     8.0)
         strip_ext mongodb
@@ -202,16 +216,21 @@ else
     spc doctor --auto-fix
 fi
 
-# The patch layer is macOS-specific: it repackages pre-built libraries whose
-# darwin .txz archives arrive corrupt, and applies the clang / libxml2 2.13 /
-# ICU 77 source fixes with arm64 flags. Linux uses spc's native prebuilts,
-# where the darwin-keyed names and flags would misfire.
+# Most of the patch layer is macOS-specific: it repackages pre-built libraries
+# whose darwin .txz archives arrive corrupt, and passes arm64 flags. Linux uses
+# spc's native prebuilts, where the darwin-keyed names and flags would misfire.
+#
+# The 7.4/8.0 php-src hook is the exception. ATTRIBUTE_UNUSED being removed,
+# xmlErrorPtr becoming const, and ICU needing C++17 are php-src-versus-library
+# problems that exist on any platform building against a modern libxml2 and
+# ICU — 7.4 fails on Ubuntu with the same `expected ';', ',' or ')' before
+# 'ATTRIBUTE_UNUSED'` it fails with on macOS. The patch functions are plain
+# sed and grep with nothing arch-specific in them, so the hook runs everywhere.
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/spc-patches.sh"
 case "${PLATFORM}" in
-    darwin-*)
-        # shellcheck disable=SC1091
-        source "${SCRIPT_DIR}/spc-patches.sh"
-        apply_all_spc_patches
-        ;;
+    darwin-*) apply_all_spc_patches ;;
+    *)        arm_legacy_php_buildconf_hook ;;
 esac
 
 echo ">>> building PHP ${PHP_TARGET} with: ${EXTENSIONS}"

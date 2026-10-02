@@ -47,7 +47,13 @@ wipe_troublesome_prebuilts() {
     # forces repackage_lib to build it from source, which is where that alias
     # gets added. Without this the pre-built wins and php fails at the final
     # link with undefined _tgetent/_tputs/_tgoto.
-    for lib in gmp ncurses libssh2; do
+    #
+    # sqlite is here for a third reason again: its pre-built archive is
+    # perfectly valid and simply built without SQLITE_ENABLE_COLUMN_METADATA.
+    # repackage_lib's cache check verifies integrity, not content, so a valid
+    # archive is trusted and the from-source build never runs — the flag goes
+    # missing with nothing failing anywhere.
+    for lib in gmp ncurses libssh2 sqlite; do
         rm -f "${SPC_DIR}/downloads/${lib}-aarch64-darwin.txz" 2>/dev/null || true
     done
 }
@@ -263,6 +269,17 @@ repackage_lib() {
                 cmake --build _build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
                 cmake --install _build
                 touch "${work}/.skip-make-install"
+                ;;
+            sqlite-static)
+                # PHP's own sqlite3 sanity check wants
+                # sqlite_compileoption_used('ENABLE_COLUMN_METADATA'), and
+                # frameworks use column metadata for schema introspection.
+                # spc's pre-built sqlite does not have it, and a plain
+                # autoconf-static build does not either — it is a
+                # preprocessor define rather than a ./configure switch.
+                ./configure --prefix="${work}/install" \
+                    --enable-static --disable-shared --with-pic \
+                    CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -DSQLITE_ENABLE_COLUMN_METADATA=1"
                 ;;
             libaom-cmake)
                 # libaom (AV1) — pulled in by libheif/libavif for AVIF support.
@@ -956,7 +973,7 @@ apply_all_spc_patches() {
     repackage_lib libpng    'libpng-*.tar.*'     autoconf-static
     presource_icu
     repackage_lib icu       'icu4c-*-src.tgz'    icu-static
-    repackage_lib sqlite    'sqlite-*.tar.*'     autoconf-static
+    repackage_lib sqlite    'sqlite-*.tar.*'     sqlite-static
     fix_stale_la_paths
     write_openssl_bootstrap
     preextract_curl

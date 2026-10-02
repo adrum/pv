@@ -53,6 +53,23 @@ if [[ ",${REQUESTED}," == *",password-argon2,"* ]]; then
         fail "PASSWORD_ARGON2ID is undefined — password-argon2 did not build in"
 fi
 
+# --- Are the libraries built with what PHP needs from them ----------------
+# A library can be present, correct and still useless: these are compile-time
+# options with no runtime symptom until something asks for the feature.
+if grep -qx "pdo_sqlite" <<<"${MODULES}"; then
+    "${PHP}" -r '
+        $used = (new PDO("sqlite::memory:"))
+            ->query("SELECT sqlite_compileoption_used(\"ENABLE_COLUMN_METADATA\") AS used")
+            ->fetch()["used"];
+        exit($used ? 0 : 1);
+    ' || fail "sqlite was built without ENABLE_COLUMN_METADATA — column metadata and PHP's own sqlite3 sanity check need it"
+fi
+
+if grep -qx "curl" <<<"${MODULES}"; then
+    "${PHP}" -r 'exit((curl_version()["features"] & CURL_VERSION_HTTP2) ? 0 : 1);' ||
+        fail "curl was built without HTTP/2 — Symfony's HttpClient falls back to a client that stalls every request by up to a second"
+fi
+
 # --- Does it link anything that only exists on the build host -------------
 # The single most valuable check in the pipeline: a binary linking a package
 # manager's library works perfectly in CI and fails on every user's machine.
