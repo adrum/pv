@@ -29,7 +29,7 @@ jobs:
             runner: macos-14
             target: aarch64-apple-darwin
           - platform: darwin-x86_64
-            runner: macos-13
+            runner: macos-15-intel
             target: x86_64-apple-darwin
           - platform: linux-x86_64
             runner: ubuntu-22.04
@@ -38,6 +38,11 @@ jobs:
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
+    # A retired or unavailable runner label never gets assigned, and the
+    # default six-hour timeout would hold the publish job behind it. Fail in
+    # one hour instead: the other platforms still publish, because fail-fast
+    # is off.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
