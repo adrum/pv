@@ -33,4 +33,6 @@ jobs:
       # Warnings and above. The style/info level flags deliberate choices in
       # these scripts — a PHP snippet quoted so the shell leaves it alone, for
       # one — and failing on those trains people to ignore the check.
-      - run: shellcheck -S warning build/*.sh
+      # install.sh included deliberately: it is the one script that runs on
+      # machines we know nothing about, before pv exists.
+      - run: shellcheck -S warning build/*.sh install.sh
