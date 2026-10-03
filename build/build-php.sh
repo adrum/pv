@@ -44,6 +44,11 @@ if ! echo "${HOST_ARCH}" | grep -qE "^(${WANT_ARCH})$"; then
     exit 1
 fi
 
+# php-config, phpize and php.ini all bake in a prefix the build cannot know,
+# because a relocatable tree does not have one until it is installed. They
+# ship with this placeholder and `pv install` substitutes the real directory.
+PV_PREFIX_PLACEHOLDER="@PV_PREFIX@"
+
 SPC_DIR="${SPC_DIR:-${ROOT_DIR}/.spc-cache/${PHP_LINE}-${PLATFORM}}"
 DIST_DIR="${ROOT_DIR}/dist"
 STAGE_DIR="${ROOT_DIR}/.build/${PHP_LINE}-${PLATFORM}"
@@ -276,8 +281,21 @@ fi
 # request tries to reach a debug client and logs a warning when none is
 # listening. XDEBUG_MODE=<mode> in the environment enables it for a single
 # invocation, and Xdebug honors that over any ini value.
+EXTENSION_SUFFIX="$("${STAGE_DIR}/${ARCHIVE_ROOT}/bin/php-config" --extension-dir 2>/dev/null || echo "/lib/php/extensions")"
+mkdir -p "${STAGE_DIR}/${ARCHIVE_ROOT}${EXTENSION_SUFFIX}"
+
+mkdir -p "${STAGE_DIR}/${ARCHIVE_ROOT}/etc/conf.d"
+cat > "${STAGE_DIR}/${ARCHIVE_ROOT}/etc/conf.d/.keep" <<'EOF'
+; Drop .ini files here to enable extensions you build yourself.
+; pv points PHP_INI_SCAN_DIR at this directory.
+EOF
 cat > "${STAGE_DIR}/${ARCHIVE_ROOT}/etc/php.ini" <<EOF
 ; pv default php.ini for PHP ${PHP_VERSION}
+;
+; PHP compiles in a fixed search path for php.ini that a relocatable tree
+; cannot satisfy, so pv points PHPRC at this file when it runs php. Without
+; that, nothing in here applies — which is exactly how it shipped once.
+extension_dir = "${PV_PREFIX_PLACEHOLDER}${EXTENSION_SUFFIX}"
 memory_limit = 512M
 max_execution_time = 300
 upload_max_filesize = 100M
@@ -287,6 +305,37 @@ date.timezone = UTC
 xdebug.mode = off
 xdebug.start_with_request = trigger
 EOF
+
+# --- Headers and build system, so extensions can be compiled --------------
+# php-config and phpize are useless without the headers they hand a compiler,
+# and they bake their prefix in at build time — so a shipped php-config points
+# at a directory that exists only on the build host. Ship the headers, and
+# rewrite the prefix to a placeholder that `pv install` replaces with wherever
+# the tree actually lands. This is what makes PIE and pecl work against these
+# builds: PHP here can dlopen (that is how lib/xdebug.so loads), so the only
+# thing missing was the plumbing.
+if [[ -d "${SPC_DIR}/buildroot/include/php" ]]; then
+    mkdir -p "${STAGE_DIR}/${ARCHIVE_ROOT}/include"
+    cp -R "${SPC_DIR}/buildroot/include/php" "${STAGE_DIR}/${ARCHIVE_ROOT}/include/php"
+fi
+if [[ -d "${SPC_DIR}/buildroot/lib/php/build" ]]; then
+    mkdir -p "${STAGE_DIR}/${ARCHIVE_ROOT}/lib/php"
+    cp -R "${SPC_DIR}/buildroot/lib/php/build" "${STAGE_DIR}/${ARCHIVE_ROOT}/lib/php/build"
+fi
+# Where a freshly built extension should land.
+mkdir -p "${STAGE_DIR}/${ARCHIVE_ROOT}/lib/php/extensions"
+
+for helper in php-config phpize; do
+    target="${STAGE_DIR}/${ARCHIVE_ROOT}/bin/${helper}"
+    [[ -f "${target}" ]] || continue
+    sed -i.bak "s|${SPC_DIR}/buildroot|${PV_PREFIX_PLACEHOLDER}|g" "${target}"
+    # The scratch OpenSSL prefix leaks into php-config's library flags too.
+    sed -i.bak "s|${SPC_DIR}/[^\"' ]*|${PV_PREFIX_PLACEHOLDER}|g" "${target}"
+    # extension_dir is absolute from the filesystem root rather than relative
+    # to the prefix, so it needs its own rewrite.
+    sed -i.bak "s|extension_dir=\\([\"']\\)/lib/php/extensions|extension_dir=\\1${PV_PREFIX_PLACEHOLDER}/lib/php/extensions|" "${target}"
+    rm -f "${target}.bak"
+done
 
 # --- Third-party licenses -------------------------------------------------
 # This tarball is a binary distribution of PHP and roughly fifty statically

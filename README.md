@@ -71,6 +71,8 @@ eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 | `pv init <shell>` | shell setup for `PATH` (`--hook` adds `cd`-time switching) |
 | `pv rehash` | regenerate the shims |
 | `pv cache status\|prune\|clear` | inspect or clear downloaded tarballs |
+| `pv tool install composer\|pie` | install a tool's official phar, verified |
+| `pv tool list\|uninstall` | show or remove installed tools |
 | `pv doctor` | check the installation |
 | `--format json` | machine-readable output for `resolve`, `which`, `list`, `doctor` |
 | `pv self update` | replace this binary with the newest build |
@@ -134,10 +136,20 @@ Plus **Xdebug**, shipped as a shared `lib/xdebug.so` because it cannot be
 linked statically. It is loaded with `xdebug.mode = off`; set `XDEBUG_MODE` for
 a single invocation, which Xdebug honors over any ini value.
 
-**`pecl install <anything>` does not work against these builds.** A statically
-linked PHP cannot `dlopen` arbitrary extensions, so the list above is the
-supported surface. If you need something outside it, open an issue — building
-on demand is a real feature and a large one, and it is not in this release.
+**You can add extensions pv did not bake in.** These builds link their
+dependencies statically but still `dlopen` shared extensions — that is how
+`lib/xdebug.so` loads — and each ships the headers and build files an
+extension needs to compile against:
+
+```sh
+pv tool install pie
+pie install xdebug/xdebug     # compiles against this PHP, installs, enables
+```
+
+PIE builds the extension, drops the `.so` in the version's extension
+directory, and enables it with an ini file in `etc/conf.d/`, which pv points
+PHP at. `pecl` works the same way. The list above is what you get without
+doing any of that.
 
 A few absences are deliberate: `sqlsrv` (Microsoft's ODBC driver is dylib-only
 on macOS) and `pcov` (shared-only, like Xdebug — use `xdebug.mode=coverage`).

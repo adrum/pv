@@ -33,6 +33,55 @@ pub struct ArtifactRecord {
     pub files: BTreeMap<String, String>,
 }
 
+/// The token the build leaves in place of a prefix it cannot know.
+pub const PREFIX_PLACEHOLDER: &str = "@PV_PREFIX@";
+
+/// The ini pv points PHP at, and the directory for drop-in ini files.
+pub fn ini_path(version: &Version) -> Result<PathBuf> {
+    Ok(paths::version_dir(&version.to_string())?
+        .join("etc")
+        .join("php.ini"))
+}
+
+pub fn conf_dir(version: &Version) -> Result<PathBuf> {
+    Ok(paths::version_dir(&version.to_string())?
+        .join("etc")
+        .join("conf.d"))
+}
+
+/// Point the shipped build helpers at where this version actually landed.
+///
+/// `php-config` and `phpize` are generated at build time with an absolute
+/// prefix compiled into them. A relocatable tarball cannot carry that, so the
+/// build writes a placeholder and this replaces it with the real directory —
+/// which is the difference between `php-config --includes` naming headers that
+/// exist and naming a directory on a machine the user has never seen.
+pub fn rewrite_prefix(version: &Version) -> Result<()> {
+    let root = paths::version_dir(&version.to_string())?;
+    let prefix = root.to_string_lossy().to_string();
+
+    for helper in ["bin/php-config", "bin/phpize", "etc/php.ini"] {
+        let path = root.join(helper);
+        let Ok(body) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if !body.contains(PREFIX_PLACEHOLDER) {
+            continue;
+        }
+        let rewritten = body.replace(PREFIX_PLACEHOLDER, &prefix);
+        std::fs::write(&path, rewritten)
+            .with_context(|| format!("could not rewrite {}", path.display()))?;
+
+        // php.ini is data; the helpers have to stay runnable.
+        if helper.starts_with("bin/") {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .with_context(|| format!("could not make {} executable", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Hash every executable and shared object in an installed tree.
 ///
 /// Deliberately not the whole tree: `etc/php.ini` is meant to be edited, and

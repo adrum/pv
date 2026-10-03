@@ -90,13 +90,21 @@ PHP the current directory resolves to.
 **It does not manage your sites.** No web server, no process supervisor, no
 `.test` domains. One job.
 
-<Aside type="note" title="Why the extensions are fixed">
-These builds are statically linked, which is what makes them relocatable and
-dependency-free — and it means PHP cannot `dlopen` an extension that was not
-compiled in, so `pecl install` does not work against them. The
-[extension list](/pv/reference/extensions/) is the supported surface, and it is
-generated from the build scripts rather than written by hand, so it cannot
-claim something a build does not ship.
+<Aside type="note" title="And the ones that are not baked in">
+Dependencies are linked statically, which is what makes these builds
+relocatable — but PHP still loads shared extensions, and every build ships the
+headers one needs to compile against:
+
+```sh
+pv tool install pie
+pie install xdebug/xdebug
+```
+
+PIE compiles it, installs it into that version's extension directory, and
+enables it through an ini file pv points PHP at. The
+[extension list](/pv/reference/extensions/) is what you get without doing any
+of that, and it is generated from the build scripts rather than written by
+hand, so it cannot claim something a build does not ship.
 </Aside>
 
 ## Where it runs

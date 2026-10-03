@@ -93,6 +93,52 @@ for binary in "${TREE}"/bin/* "${TREE}"/lib/*.so; do
     check_links "${binary}" || fail "build-host-only library references"
 done
 
+# --- Does anything still point at the build host --------------------------
+# The library check above only inspects what a binary links. Build-host paths
+# also get baked into shipped *text* — php-config hands a compiler its include
+# flags, and a stale prefix there points at a directory that exists on no
+# user's machine. This shipped broken once already.
+# -I skips binaries: a compiled object embeds build paths in its debug info,
+# which is normal and harmless. It is the shipped *scripts* that have to be
+# clean, because those paths get handed to a compiler.
+host_paths="$(grep -rIlE '(/Users/[^/]+/|/home/[^/]+/|/github/workspace|\.spc-cache)' \
+                   "${TREE}/bin" "${TREE}/lib/php/build" 2>/dev/null || true)"
+if [[ -n "${host_paths}" ]]; then
+    echo "verify: these shipped files still reference the build host:" >&2
+    sed 's/^/  /' <<<"${host_paths}" >&2
+    fail "build-host paths in shipped files"
+fi
+
+# php-config is only useful if it was rewritten to the placeholder the client
+# substitutes at install time, and only correct if the headers it points at
+# are actually in the tarball.
+if [[ -f "${TREE}/bin/php-config" ]]; then
+    grep -q '@PV_PREFIX@' "${TREE}/bin/php-config" ||
+        fail "bin/php-config has no @PV_PREFIX@ placeholder — it would ship with a \
+fixed prefix and point at nothing"
+    # Two separate prefixes live in php-config and only one of them follows
+    # --prefix: extension_dir is absolute from the filesystem root, so it needs
+    # its own rewrite and its own check.
+    grep -q "extension_dir=[\"']@PV_PREFIX@" "${TREE}/bin/php-config" ||
+        fail "bin/php-config's extension_dir was not rewritten — a built extension \
+would install outside the version tree"
+    [[ -f "${TREE}/include/php/main/php.h" ]] ||
+        fail "php-config ships without include/php/main/php.h — nothing could compile \
+against this build"
+fi
+
+# The shipped ini is only real if something points PHP at it — pv sets PHPRC,
+# so check the file works when it is used. An ini that is never read is how
+# this shipped the first time.
+if [[ -f "${TREE}/etc/php.ini" ]]; then
+    limit="$(PHPRC="${TREE}/etc/php.ini" "${PHP}" -r 'echo ini_get("memory_limit");')"
+    [[ "${limit}" == "512M" ]] ||
+        fail "etc/php.ini is not applied when PHPRC points at it (memory_limit=${limit})"
+    grep -q '@PV_PREFIX@' "${TREE}/etc/php.ini" ||
+        fail "etc/php.ini has no @PV_PREFIX@ placeholder — extension_dir would be absolute \
+from the filesystem root"
+fi
+
 # --- Is it relocatable ----------------------------------------------------
 # Nothing may depend on an absolute path chosen at build time, so the whole
 # tree is exercised again from a directory it has never seen.

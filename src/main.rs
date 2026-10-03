@@ -559,6 +559,21 @@ fn cmd_run(command: &str, args: &[String]) -> Result<ExitCode> {
         process.env("PV_PHP_VERSION", resolution.version.to_string());
     }
 
+    // PHP compiles in a fixed php.ini search path that a relocatable tree
+    // cannot satisfy — ours looks in /usr/local/etc/php, which is nobody's
+    // install. Pointing PHPRC at the tree's own ini is what makes the shipped
+    // defaults real; without it the artifact carries a config file that is
+    // never read. PHP_INI_SCAN_DIR gives extensions you build yourself a
+    // place to be enabled from.
+    let ini = installs::ini_path(&resolution.version)?;
+    if ini.is_file() {
+        process.env("PHPRC", &ini);
+    }
+    let conf_dir = installs::conf_dir(&resolution.version)?;
+    if conf_dir.is_dir() {
+        process.env("PHP_INI_SCAN_DIR", &conf_dir);
+    }
+
     // exec, so signals, exit codes and job control belong to the command
     // rather than to a pv process sitting in the middle.
     let error = process.exec();

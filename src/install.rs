@@ -108,6 +108,12 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
             .with_context(|| format!("could not install {version} into {}", target.display()))?;
     }
 
+    // php-config and phpize bake their prefix in at build time, so the build
+    // ships a placeholder and the real path is only knowable here. Without
+    // this they hand a compiler include flags pointing at the build host, and
+    // PIE, pecl and anything else that builds an extension gets nonsense.
+    installs::rewrite_prefix(&version)?;
+
     installs::write_record(
         &version,
         &ArtifactRecord {

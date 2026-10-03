@@ -92,9 +92,9 @@ writeFileSync(
       'What every pv PHP build includes, and what it deliberately does not.',
     ) +
     `
-Every build carries this set. It is the supported surface: a statically linked
-PHP cannot \`dlopen\` arbitrary extensions, so **\`pecl install <anything>\` does
-not work** against these builds.
+Every build carries this set, compiled in. Dependencies are linked statically,
+but PHP still loads shared extensions — so anything missing here can be built
+and added with \`pie\` or \`pecl\`, against headers every build ships.
 
 <div style="columns: 3; font-family: var(--sl-font-mono); font-size: 0.9em">
 
