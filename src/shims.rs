@@ -61,6 +61,13 @@ pub fn sync() -> Result<Vec<String>> {
             }
         }
     }
+    // Tools pv installed get shims too, so `composer` and `pie` are reachable
+    // by name and run under the PHP the current directory resolves to.
+    for tool in crate::tools::Tool::all() {
+        if crate::tools::is_installed(tool)? {
+            wanted.push(tool.name().to_string());
+        }
+    }
     wanted.sort();
 
     for command in &wanted {

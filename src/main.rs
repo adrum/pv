@@ -16,6 +16,7 @@ mod platform;
 mod resolve;
 mod selfupdate;
 mod shims;
+mod tools;
 mod version;
 
 use std::path::PathBuf;
@@ -134,6 +135,9 @@ enum Command {
     },
     /// Regenerate the shims
     Rehash,
+    /// Install Composer or PIE, and run them under the resolved PHP
+    #[command(subcommand)]
+    Tool(ToolCommand),
     /// Inspect or clear the download cache
     #[command(subcommand)]
     Cache(CacheCommand),
@@ -153,6 +157,22 @@ struct ListArgs {
     /// With --remote, show every published patch rather than the newest few
     #[arg(long)]
     all: bool,
+}
+
+#[derive(Subcommand)]
+enum ToolCommand {
+    /// Download a tool's official phar and verify it
+    Install {
+        /// composer or pie
+        tool: tools::Tool,
+    },
+    /// Remove an installed tool
+    Uninstall {
+        /// composer or pie
+        tool: tools::Tool,
+    },
+    /// Show which tools are installed
+    List,
 }
 
 #[derive(Subcommand)]
@@ -204,6 +224,7 @@ fn run() -> Result<ExitCode> {
         } => cmd_resolve(pinned_only, source, format),
         Command::Init { shell, hook } => cmd_init(&shell, hook),
         Command::Rehash => cmd_rehash(),
+        Command::Tool(command) => cmd_tool(command, format),
         Command::Cache(command) => cmd_cache(command),
         Command::Doctor => cmd_doctor(format),
         Command::Zelf(SelfCommand::Update { force }) => {
@@ -211,6 +232,12 @@ fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// The `php` binary this directory resolves to.
+pub fn current_php() -> Result<PathBuf> {
+    let resolution = current_resolution()?;
+    installs::binary_path(&resolution.version, "php")
 }
 
 /// A stable identifier for which resolution step answered.
@@ -472,7 +499,13 @@ fn cmd_which(command: &str, format: Format) -> Result<ExitCode> {
             "command": command,
             "path": located.path.display().to_string(),
             "version": resolution.version.to_string(),
-            "from": if located.from_path { "path" } else { "version" },
+            "from": if located.phar {
+                "tool"
+            } else if located.from_path {
+                "path"
+            } else {
+                "version"
+            },
         }),
         || println!("{}", located.path.display()),
     )?;
@@ -485,8 +518,28 @@ fn cmd_run(command: &str, args: &[String]) -> Result<ExitCode> {
     let resolution = current_resolution()?;
     let located = locate(&resolution.version, command)?;
 
-    let mut process = std::process::Command::new(&located.path);
+    let mut process = if located.phar {
+        let mut process =
+            std::process::Command::new(installs::binary_path(&resolution.version, "php")?);
+        process.arg(&located.path);
+        process
+    } else {
+        std::process::Command::new(&located.path)
+    };
     process.args(args);
+
+    if located.phar {
+        // Composer shells out to `php` for sub-processes and plugin scripts;
+        // without this they would resolve through the shim again and could
+        // disagree with the PHP running the phar itself.
+        process.env(
+            "PATH",
+            std::env::join_paths(
+                std::iter::once(installs::bin_dir(&resolution.version)?).chain(lookup::entries()),
+            )?,
+        );
+        process.env("PV_PHP_VERSION", resolution.version.to_string());
+    }
 
     if located.from_path {
         // A PHP tool found on PATH — Composer being the one that matters. Two
@@ -516,6 +569,8 @@ struct Located {
     path: PathBuf,
     /// True when the command came from PATH rather than the PHP tree.
     from_path: bool,
+    /// Set when `path` is a phar, which needs php to run it.
+    phar: bool,
 }
 
 /// Where `command` lives: inside the resolved PHP first, then PATH.
@@ -530,6 +585,19 @@ fn locate(version: &Version, command: &str) -> Result<Located> {
         return Ok(Located {
             path,
             from_path: false,
+            phar: false,
+        });
+    }
+
+    // A tool pv installed: one phar shared by every PHP, run under whichever
+    // version this directory resolves to.
+    if let Some(tool) = tools::Tool::from_name(command)
+        && tools::is_installed(tool)?
+    {
+        return Ok(Located {
+            path: tool.path()?,
+            from_path: false,
+            phar: true,
         });
     }
 
@@ -537,6 +605,7 @@ fn locate(version: &Version, command: &str) -> Result<Located> {
         return Ok(Located {
             path,
             from_path: true,
+            phar: false,
         });
     }
 
@@ -616,6 +685,64 @@ fn cmd_init(shell: &str, hook: bool) -> Result<ExitCode> {
     if hook {
         let pv = std::env::current_exe().context("could not determine pv's own path")?;
         print!("{}", shims::hook_snippet(shell, &pv));
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_tool(command: ToolCommand, format: Format) -> Result<ExitCode> {
+    match command {
+        ToolCommand::Install { tool } => {
+            let outcome = tools::install(tool)?;
+            format.emit(
+                serde_json::json!({
+                    "tool": outcome.tool.name(),
+                    "version": outcome.version,
+                    "path": outcome.path.display().to_string(),
+                }),
+                || {
+                    println!("installed {} {}", outcome.tool.name(), outcome.version);
+                    println!(
+                        "it runs under whichever PHP resolves here — try `{} --version`",
+                        outcome.tool.name()
+                    );
+                },
+            )?;
+            // The tool is only reachable by name once it has a shim.
+            shims::sync()?;
+        }
+        ToolCommand::Uninstall { tool } => {
+            if !tools::is_installed(tool)? {
+                bail!("{} is not installed", tool.name());
+            }
+            tools::uninstall(tool)?;
+            shims::sync()?;
+            println!("removed {}", tool.name());
+        }
+        ToolCommand::List => {
+            let mut rows = Vec::new();
+            for tool in tools::Tool::all() {
+                let record = tools::read_record(tool)?;
+                rows.push(serde_json::json!({
+                    "tool": tool.name(),
+                    "installed": tools::is_installed(tool)?,
+                    "version": record.as_ref().map(|r| r.version.clone()),
+                    "path": tools::is_installed(tool)?
+                        .then(|| tool.path().ok().map(|p| p.display().to_string()))
+                        .flatten(),
+                }));
+            }
+            format.emit(serde_json::json!({ "tools": rows }), || {
+                for row in &rows {
+                    let name = row["tool"].as_str().unwrap_or_default();
+                    if row["installed"].as_bool().unwrap_or(false) {
+                        let version = row["version"].as_str().unwrap_or("unknown");
+                        println!("  {name} {version}");
+                    } else {
+                        println!("  {name} (not installed — `pv tool install {name}`)");
+                    }
+                }
+            })?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

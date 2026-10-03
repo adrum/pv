@@ -41,6 +41,12 @@ pub fn shims_dir() -> Result<PathBuf> {
     Ok(home()?.join("shims"))
 }
 
+/// Phars shared by every installed PHP — Composer, PIE. A phar is bytecode,
+/// so there is nothing version-specific to duplicate.
+pub fn tools_dir() -> Result<PathBuf> {
+    Ok(home()?.join("tools"))
+}
+
 pub fn cache_dir() -> Result<PathBuf> {
     Ok(home()?.join("cache"))
 }
