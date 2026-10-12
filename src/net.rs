@@ -150,7 +150,13 @@ impl Progress {
 
     fn finish(&self, written: u64) {
         if self.interactive {
-            eprint!("\r\u{1b}[2K");
+            // The older Windows console prints escape sequences literally
+            // unless a program asks it not to, so the line is blanked there.
+            if cfg!(windows) {
+                eprint!("\r{:79}\r", "");
+            } else {
+                eprint!("\r\u{1b}[2K");
+            }
         }
         eprintln!("  downloaded {} ({})", self.label, megabytes(written));
     }
