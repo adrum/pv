@@ -8,10 +8,7 @@ use crate::shims;
 
 /// First executable `command` on `PATH`.
 pub fn on_path(command: &str) -> Option<PathBuf> {
-    entries()
-        .into_iter()
-        .map(|dir| dir.join(command))
-        .find(|candidate| is_executable(candidate))
+    entries().into_iter().find_map(|dir| find_in(&dir, command))
 }
 
 /// First executable `command` on `PATH` that is not one of pv's own shims.
@@ -22,10 +19,9 @@ pub fn on_path(command: &str) -> Option<PathBuf> {
 /// is what distinguishes it.
 pub fn on_path_excluding_shims(command: &str) -> Result<Option<PathBuf>> {
     for dir in entries() {
-        let candidate = dir.join(command);
-        if !is_executable(&candidate) {
+        let Some(candidate) = find_in(&dir, command) else {
             continue;
-        }
+        };
         if shims::is_pv_shim(&candidate)? {
             continue;
         }
@@ -40,6 +36,52 @@ pub fn entries() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
+/// The file in `dir` that typing `command` would run, if there is one.
+#[cfg(not(windows))]
+pub fn find_in(dir: &Path, command: &str) -> Option<PathBuf> {
+    Some(dir.join(command)).filter(|candidate| is_executable(candidate))
+}
+
+/// The file in `dir` that typing `command` would run, if there is one.
+///
+/// Windows resolves a bare command by trying each `PATHEXT` extension in
+/// turn, so `php` means `php.exe`, `php.cmd` and so on — and a file called
+/// just `php` is not a command at all.
+#[cfg(windows)]
+pub fn find_in(dir: &Path, command: &str) -> Option<PathBuf> {
+    let pathext = std::env::var("PATHEXT").unwrap_or_default();
+    pathext_names(command, &pathext)
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|candidate| is_executable(candidate))
+}
+
+/// What Windows searches for when no `PATHEXT` is set.
+#[cfg(any(windows, test))]
+const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
+
+/// The file names `command` can resolve to, in the order they are tried: the
+/// name itself when it already has an extension, then one per `PATHEXT` entry.
+#[cfg(any(windows, test))]
+fn pathext_names(command: &str, pathext: &str) -> Vec<String> {
+    let pathext = if pathext.trim().is_empty() {
+        DEFAULT_PATHEXT
+    } else {
+        pathext
+    };
+    let mut names = Vec::new();
+    if Path::new(command).extension().is_some() {
+        names.push(command.to_string());
+    }
+    for extension in pathext.split(';').map(str::trim) {
+        if extension.starts_with('.') {
+            names.push(format!("{command}{}", extension.to_ascii_lowercase()));
+        }
+    }
+    names
+}
+
+#[cfg(unix)]
 pub fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path)
@@ -47,15 +89,21 @@ pub fn is_executable(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Windows has no executable bit: the extension is what makes a file runnable,
+/// and callers have already chosen that.
+#[cfg(not(unix))]
+pub fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn executable(path: &Path, body: &str) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, body).unwrap();
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        crate::paths::make_executable(path).unwrap();
     }
 
     #[test]
@@ -63,22 +111,38 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let shim_dir = dir.path().join("shims");
         let real_dir = dir.path().join("bin");
-        executable(
-            &shim_dir.join("composer"),
-            &shims::shim_body(Path::new("/opt/pv"), "composer"),
-        );
-        executable(&real_dir.join("composer"), "#!/bin/sh\necho real\n");
+        let shim = shim_dir.join(shims::shim_file("composer"));
+        // A real composer is a file the platform can run by that name.
+        let real = real_dir.join(if cfg!(windows) {
+            "composer.bat"
+        } else {
+            "composer"
+        });
+        executable(&shim, &shims::shim_body(Path::new("/opt/pv"), "composer"));
+        executable(&real, "echo real\n");
 
         // Both are on PATH, with the shim first — exactly the layout pv's own
         // init produces.
         let path = std::env::join_paths([&shim_dir, &real_dir]).unwrap();
         temp_env_path(&path, || {
-            assert_eq!(on_path("composer"), Some(shim_dir.join("composer")));
-            assert_eq!(
-                on_path_excluding_shims("composer").unwrap(),
-                Some(real_dir.join("composer"))
-            );
+            assert_eq!(on_path("composer"), Some(shim));
+            assert_eq!(on_path_excluding_shims("composer").unwrap(), Some(real));
         });
+    }
+
+    #[test]
+    fn a_bare_command_tries_each_pathext_extension_in_order() {
+        assert_eq!(
+            pathext_names("php", ".COM;.EXE;.CMD"),
+            ["php.com", "php.exe", "php.cmd"]
+        );
+        // An unset PATHEXT falls back to what Windows itself assumes.
+        assert_eq!(
+            pathext_names("php", ""),
+            ["php.com", "php.exe", "php.bat", "php.cmd"]
+        );
+        // A name that already carries its extension is tried as written first.
+        assert_eq!(pathext_names("php.exe", ".EXE")[0], "php.exe");
     }
 
     #[test]
