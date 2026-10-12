@@ -126,8 +126,8 @@ enum Command {
     },
     /// Print shell setup for PATH (add `eval "$(pv init zsh)"` to your profile)
     Init {
-        /// zsh, bash, sh or fish
-        #[arg(default_value = "zsh")]
+        /// zsh, bash, sh, fish or powershell
+        #[arg(default_value = DEFAULT_SHELL)]
         shell: String,
         /// Also emit an optional hook that switches version on cd
         #[arg(long)]
@@ -148,6 +148,9 @@ enum Command {
     #[command(name = "self")]
     Zelf(SelfCommand),
 }
+
+/// The shell `pv init` assumes when it is not told.
+const DEFAULT_SHELL: &str = if cfg!(windows) { "powershell" } else { "zsh" };
 
 #[derive(Args)]
 struct ListArgs {
@@ -299,6 +302,14 @@ fn print_path_advice() -> Result<()> {
     let status = shims::path_status("php")?;
     if !status.on_path {
         println!();
+        if cfg!(windows) {
+            println!("pv's shims are not on PATH yet. Add this to your PowerShell profile:");
+            println!("  pv init powershell | Out-String | Invoke-Expression");
+            println!("or add this directory to the front of your user PATH:");
+            println!("  {}", status.shims.display());
+            println!("then open a new terminal. `pv doctor` will confirm it.");
+            return Ok(());
+        }
         println!("pv's shims are not on PATH yet. Add this to your shell profile:");
         println!("  eval \"$(pv init zsh)\"");
         println!("or, equivalently:");
@@ -322,7 +333,11 @@ fn print_path_advice() -> Result<()> {
     }
     // Shells cache command locations, so `php` may still resolve to a path
     // recorded before the shim existed — or to nothing at all.
-    println!("If `php` still points somewhere else, run `hash -r` or open a new shell.");
+    if cfg!(windows) {
+        println!("If `php` still points somewhere else, open a new terminal.");
+    } else {
+        println!("If `php` still points somewhere else, run `hash -r` or open a new shell.");
+    }
     Ok(())
 }
 
@@ -728,7 +743,16 @@ fn cmd_resolve(pinned_only: bool, source: bool, format: Format) -> Result<ExitCo
 fn cmd_init(shell: &str, hook: bool) -> Result<ExitCode> {
     match shell {
         "zsh" | "bash" | "sh" | "fish" => {}
-        other => bail!("pv has no init snippet for `{other}` — try zsh, bash, sh or fish"),
+        // PATH only. The shims resolve the version for every command without
+        // the hook, and a hook that goes wrong takes the whole shell with it.
+        "powershell" | "pwsh" if hook => bail!(
+            "pv has no cd-time hook for {shell} — the shims switch version per \
+             directory without one, so `pv init {shell}` is all it needs"
+        ),
+        "powershell" | "pwsh" => {}
+        other => {
+            bail!("pv has no init snippet for `{other}` — try zsh, bash, sh, fish or powershell")
+        }
     }
     print!("{}", shims::init_snippet(shell, &paths::shims_dir()?));
     if hook {

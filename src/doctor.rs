@@ -137,11 +137,20 @@ fn path_checks() -> Result<Vec<Finding>> {
     if !status.on_path {
         findings.push(Finding::problem(
             format!("{} is not on PATH", status.shims.display()),
-            format!(
-                "add it, in front of everything else:\n      eval \"$(pv init zsh)\"\n    \
-                 or add this line to your shell profile:\n      export PATH=\"{}:$PATH\"",
-                status.shims.display()
-            ),
+            if cfg!(windows) {
+                format!(
+                    "add it, in front of everything else — in your PowerShell profile:\n      \
+                     pv init powershell | Out-String | Invoke-Expression\n    \
+                     or add this directory to the front of your user PATH:\n      {}",
+                    status.shims.display()
+                )
+            } else {
+                format!(
+                    "add it, in front of everything else:\n      eval \"$(pv init zsh)\"\n    \
+                     or add this line to your shell profile:\n      export PATH=\"{}:$PATH\"",
+                    status.shims.display()
+                )
+            },
         ));
     } else if status.shadowed_by.is_empty() {
         findings.push(Finding::ok(format!(
@@ -175,13 +184,21 @@ fn path_checks() -> Result<Vec<Finding>> {
         }
         Some(found) => findings.push(Finding::warn(
             format!("php on PATH is not a pv shim ({})", found.display()),
-            "pv will not control that php — fix PATH order, then run `hash -r`",
+            if cfg!(windows) {
+                "pv will not control that php — fix PATH order, then open a new terminal"
+            } else {
+                "pv will not control that php — fix PATH order, then run `hash -r`"
+            },
         )),
         None => findings.push(Finding::warn(
             "no php on PATH",
-            "install one with `pv install 8.4`, then run `hash -r` \
-             (shells cache command locations, so a shell open since before the \
-             install may still miss it)",
+            if cfg!(windows) {
+                "install one with `pv install 8.4`, then open a new terminal"
+            } else {
+                "install one with `pv install 8.4`, then run `hash -r` \
+                 (shells cache command locations, so a shell open since before the \
+                 install may still miss it)"
+            },
         )),
     }
 

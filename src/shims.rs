@@ -214,6 +214,13 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 pub fn init_snippet(shell: &str, shims: &Path) -> String {
     let shims = shims.to_string_lossy().to_string();
     match shell {
+        "powershell" | "pwsh" => {
+            let shims = shims.replace('\'', "''");
+            format!(
+                "# pv\nif (($env:PATH -split [IO.Path]::PathSeparator) -notcontains '{shims}') {{\n    \
+                 $env:PATH = '{shims}' + [IO.Path]::PathSeparator + $env:PATH\n}}\n"
+            )
+        }
         "fish" => {
             format!("# pv\nif not contains {shims} $PATH\n    set -gx PATH {shims} $PATH\nend\n")
         }
@@ -387,6 +394,18 @@ mod tests {
         assert!(
             posix.contains("PATH=\"/home/dev/.pv/shims:$PATH\""),
             "prepends: {posix}"
+        );
+
+        let powershell = init_snippet("powershell", Path::new(r"C:\Users\o'brien\.pv\shims"));
+        assert!(
+            powershell.contains("-notcontains"),
+            "idempotent: {powershell}"
+        );
+        assert!(
+            powershell.contains(
+                r"$env:PATH = 'C:\Users\o''brien\.pv\shims' + [IO.Path]::PathSeparator + $env:PATH"
+            ),
+            "prepends: {powershell}"
         );
 
         let fish = init_snippet("fish", shims);
