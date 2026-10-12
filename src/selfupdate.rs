@@ -48,8 +48,6 @@ pub fn update(force: bool) -> Result<()> {
         bail!("{} does not contain bin/{pv}", artifact.file);
     }
 
-    // Swap in place. Replacing a running binary by rename is safe on Unix —
-    // the running process keeps its open inode.
     let target = std::env::current_exe().context("could not determine pv's own path")?;
     let beside = target.with_extension("incoming");
     std::fs::copy(&incoming, &beside).with_context(|| {
@@ -59,10 +57,33 @@ pub fn update(force: bool) -> Result<()> {
         )
     })?;
     paths::make_executable(&beside)?;
-    std::fs::rename(&beside, &target)
-        .with_context(|| format!("could not replace {}", target.display()))?;
+    swap_in(&beside, &target).with_context(|| format!("could not replace {}", target.display()))?;
     let _ = std::fs::remove_dir_all(&staging);
 
     println!("pv {current} -> {latest}");
+    Ok(())
+}
+
+/// Swap in place. Replacing a running binary by rename is safe on Unix — the
+/// running process keeps its open inode.
+#[cfg(not(windows))]
+fn swap_in(new: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+    std::fs::rename(new, target)
+}
+
+/// Windows will not replace or delete a running executable, but it will
+/// rename one. So the running pv steps aside and the new one takes its name.
+/// The old file cannot be removed while this process lives; the next update
+/// clears it away.
+#[cfg(windows)]
+fn swap_in(new: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+    let old = target.with_extension("old");
+    let _ = std::fs::remove_file(&old);
+    std::fs::rename(target, &old)?;
+    if let Err(err) = std::fs::rename(new, target) {
+        let _ = std::fs::rename(&old, target);
+        return Err(err);
+    }
+    let _ = std::fs::remove_file(&old);
     Ok(())
 }
