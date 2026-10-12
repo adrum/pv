@@ -88,7 +88,7 @@ fn write_shim(path: &Path, body: &str) -> Result<()> {
         return Ok(());
     }
     std::fs::write(path, body).with_context(|| format!("could not write {}", path.display()))?;
-    make_executable(path)
+    paths::make_executable(path)
 }
 
 fn remove_orphans(dir: &Path, wanted: &[String]) -> Result<()> {
@@ -117,14 +117,6 @@ pub fn is_pv_shim(path: &Path) -> Result<bool> {
         return Ok(false);
     };
     Ok(body.lines().take(5).any(|line| line.trim() == MARKER))
-}
-
-fn make_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut permissions = std::fs::metadata(path)?.permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions)
-        .with_context(|| format!("could not make {} executable", path.display()))
 }
 
 /// Whether the shim directory is on `PATH`, and whether anything shadows it.

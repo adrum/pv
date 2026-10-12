@@ -58,19 +58,11 @@ pub fn update(force: bool) -> Result<()> {
             target.display()
         )
     })?;
-    make_executable(&beside)?;
+    paths::make_executable(&beside)?;
     std::fs::rename(&beside, &target)
         .with_context(|| format!("could not replace {}", target.display()))?;
     let _ = std::fs::remove_dir_all(&staging);
 
     println!("pv {current} -> {latest}");
     Ok(())
-}
-
-fn make_executable(path: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut permissions = std::fs::metadata(path)?.permissions();
-    permissions.set_mode(0o755);
-    std::fs::set_permissions(path, permissions)
-        .with_context(|| format!("could not make {} executable", path.display()))
 }

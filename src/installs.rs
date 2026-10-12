@@ -75,9 +75,7 @@ pub fn rewrite_prefix(version: &Version) -> Result<()> {
 
         // php.ini is data; the helpers have to stay runnable.
         if helper.starts_with("bin/") {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-                .with_context(|| format!("could not make {} executable", path.display()))?;
+            paths::make_executable(&path)?;
         }
     }
     Ok(())

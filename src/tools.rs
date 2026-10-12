@@ -207,8 +207,7 @@ pub fn install(tool: Tool) -> Result<Outcome> {
         ));
     }
 
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+    paths::make_executable(&path)?;
 
     // Composer's download URL carries no version, so ask the phar itself once
     // it is verified — the answer belongs in the record either way.

@@ -65,3 +65,19 @@ pub fn artifact_record(version: &str) -> Result<PathBuf> {
 pub fn ensure_dir(path: &Path) -> Result<()> {
     std::fs::create_dir_all(path).with_context(|| format!("could not create {}", path.display()))
 }
+
+/// Mark a file runnable.
+///
+/// Windows has no executable bit — a file runs because of its extension — so
+/// there is nothing to set there.
+pub fn make_executable(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("could not make {} executable", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
