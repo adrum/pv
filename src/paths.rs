@@ -24,10 +24,18 @@ pub fn home() -> Result<PathBuf> {
         }
         return Ok(dir);
     }
-    let home = std::env::var_os("HOME")
-        .context("HOME is not set, so pv cannot find its state directory — set PV_HOME")?;
+    let home = std::env::var_os(HOME_VARIABLE).with_context(|| {
+        format!("{HOME_VARIABLE} is not set, so pv cannot find its state directory — set PV_HOME")
+    })?;
     Ok(PathBuf::from(home).join(".pv"))
 }
+
+/// The variable that names the user's home directory.
+///
+/// Windows does not set `HOME`. Some shells there invent one, and following
+/// it would give pv a different state directory depending on which shell
+/// started it.
+const HOME_VARIABLE: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 
 pub fn versions_dir() -> Result<PathBuf> {
     Ok(home()?.join("versions"))
