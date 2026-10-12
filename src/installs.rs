@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::net;
 use crate::paths;
+use crate::platform;
 use crate::version::Version;
 
 /// What `pv install` recorded about the artifact a version came from.
@@ -144,7 +145,12 @@ pub fn installed() -> Result<Vec<Version>> {
         let Ok(version) = name.parse::<Version>() else {
             continue;
         };
-        if entry.path().join("bin").join("php").is_file() {
+        if entry
+            .path()
+            .join("bin")
+            .join(platform::exe("php"))
+            .is_file()
+        {
             versions.push(version);
         }
     }
@@ -153,10 +159,7 @@ pub fn installed() -> Result<Vec<Version>> {
 }
 
 pub fn is_installed(version: &Version) -> Result<bool> {
-    Ok(paths::version_dir(&version.to_string())?
-        .join("bin")
-        .join("php")
-        .is_file())
+    Ok(binary_path(version, "php")?.is_file())
 }
 
 /// The `bin` directory of an installed version.
@@ -168,7 +171,7 @@ pub fn bin_dir(version: &Version) -> Result<PathBuf> {
 pub fn binary_path(version: &Version, command: &str) -> Result<PathBuf> {
     Ok(paths::version_dir(&version.to_string())?
         .join("bin")
-        .join(command))
+        .join(platform::exe(command)))
 }
 
 /// Commands an installed version actually provides.
@@ -181,7 +184,10 @@ pub fn commands(version: &Version) -> Result<Vec<String>> {
     let mut names: Vec<String> = entries
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.path().is_file())
-        .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
+        .filter_map(|entry| {
+            let file = entry.file_name();
+            platform::command_name(file.to_str()?).map(str::to_string)
+        })
         .collect();
     names.sort();
     Ok(names)

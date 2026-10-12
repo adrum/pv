@@ -41,10 +41,11 @@ pub fn update(force: bool) -> Result<()> {
     let staging = paths::cache_dir()?.join(format!(".pv-{latest}.incoming"));
     let _ = std::fs::remove_dir_all(&staging);
     archive::extract_stripped(&cached, &staging)?;
-    let incoming = staging.join("bin").join("pv");
+    let pv = platform::exe("pv");
+    let incoming = staging.join("bin").join(&pv);
     if !incoming.is_file() {
         let _ = std::fs::remove_dir_all(&staging);
-        bail!("{} does not contain bin/pv", artifact.file);
+        bail!("{} does not contain bin/{pv}", artifact.file);
     }
 
     // Swap in place. Replacing a running binary by rename is safe on Unix —

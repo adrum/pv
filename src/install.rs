@@ -83,10 +83,11 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
     let _ = std::fs::remove_dir_all(&staging);
     archive::extract_stripped(&cached, &staging)?;
 
-    if !staging.join("bin").join("php").is_file() {
+    let php = platform::exe("php");
+    if !staging.join("bin").join(&php).is_file() {
         let _ = std::fs::remove_dir_all(&staging);
         bail!(
-            "{} does not contain bin/php — the artifact is not a pv PHP build",
+            "{} does not contain bin/{php} — the artifact is not a pv PHP build",
             artifact.file
         );
     }
