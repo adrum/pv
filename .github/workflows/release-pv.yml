@@ -37,6 +37,12 @@ jobs:
           - platform: linux-arm64
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-musl
+          # The gnu target links against nothing but DLLs Windows ships, so
+          # pv.exe stays a single file with no runtime to install beside it.
+          - platform: windows-x86_64
+            runner: windows-latest
+            target: x86_64-pc-windows-gnu
+            exe: .exe
     runs-on: ${{ matrix.runner }}
     # A retired or unavailable runner label never gets assigned, and the
     # default six-hour timeout would hold the publish job behind it. Fail in
@@ -63,13 +69,17 @@ jobs:
       - run: cargo build --release --locked --target ${{ matrix.target }}
 
       - name: Package
+        # bash everywhere, so the Windows runner packages with the same script.
+        shell: bash
         run: |
-          version="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          # The Windows runner may only have the interpreter as `python`.
+          python="$(command -v python3 || command -v python)"
+          version="$(cargo metadata --no-deps --format-version 1 | "$python" -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
           root="pv-${version}-${{ matrix.platform }}"
           # The same shape as a PHP artifact: one top-level directory holding
           # bin/, because pv extracts with the first component stripped.
           mkdir -p "stage/${root}/bin"
-          cp "target/${{ matrix.target }}/release/pv" "stage/${root}/bin/pv"
+          cp "target/${{ matrix.target }}/release/pv${{ matrix.exe }}" "stage/${root}/bin/pv${{ matrix.exe }}"
           mkdir -p dist
           tar -czf "dist/${root}.tar.gz" -C stage "${root}"
           (cd dist && shasum -a 256 "${root}.tar.gz" > "${root}.tar.gz.sha256")
