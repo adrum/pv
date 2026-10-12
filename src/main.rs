@@ -513,8 +513,6 @@ fn cmd_which(command: &str, format: Format) -> Result<ExitCode> {
 }
 
 fn cmd_run(command: &str, args: &[String]) -> Result<ExitCode> {
-    use std::os::unix::process::CommandExt;
-
     let resolution = current_resolution()?;
     let located = locate(&resolution.version, command)?;
 
@@ -574,10 +572,46 @@ fn cmd_run(command: &str, args: &[String]) -> Result<ExitCode> {
         process.env("PHP_INI_SCAN_DIR", &conf_dir);
     }
 
-    // exec, so signals, exit codes and job control belong to the command
-    // rather than to a pv process sitting in the middle.
-    let error = process.exec();
-    Err(error).with_context(|| format!("could not run {}", located.path.display()))
+    hand_over(process).with_context(|| format!("could not run {}", located.path.display()))
+}
+
+/// Become the command: exec, so signals, exit codes and job control belong to
+/// it rather than to a pv process sitting in the middle.
+#[cfg(unix)]
+fn hand_over(mut process: std::process::Command) -> std::io::Result<ExitCode> {
+    use std::os::unix::process::CommandExt;
+    Err(process.exec())
+}
+
+/// Windows has no exec, so pv stays in the middle and does as little there as
+/// it can: wait for the command, then leave with its exit code.
+#[cfg(windows)]
+fn hand_over(mut process: std::process::Command) -> std::io::Result<ExitCode> {
+    const CTRL_BREAK_EVENT: u32 = 1;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+    }
+
+    // Ctrl+C and Ctrl+Break reach every process attached to the console, the
+    // command included. What they mean is the command's decision — an
+    // interactive `php -a` survives one — so pv claims to have handled them
+    // and keeps waiting. A handler function rather than the "ignore Ctrl+C"
+    // flag, because that flag is inherited and the command would ignore it too.
+    unsafe extern "system" fn leave_it_to_the_command(event: u32) -> i32 {
+        (event <= CTRL_BREAK_EVENT) as i32
+    }
+    // SAFETY: the handler is a plain function that touches no state.
+    unsafe { SetConsoleCtrlHandler(Some(leave_it_to_the_command), 1) };
+
+    let status = process.status()?;
+    // Not ExitCode, which is a u8: Windows exit codes are 32 bits wide, and a
+    // crash is reported as one that does not fit.
+    std::process::exit(status.code().unwrap_or(1))
 }
 
 struct Located {
