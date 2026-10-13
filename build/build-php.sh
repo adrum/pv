@@ -21,6 +21,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+# Windows is not built here at all: php.net's own build is repackaged, by a
+# script that shares nothing with the spc pipeline below.
+if [[ "${PLATFORM}" == windows-* ]]; then
+    exec "${SCRIPT_DIR}/package-php-windows.sh" "${PHP_LINE}" "${PLATFORM}"
+fi
+
 if [[ -z "${PLATFORM}" ]]; then
     case "$(uname -s)-$(uname -m)" in
         Darwin-arm64)  PLATFORM="darwin-arm64" ;;
