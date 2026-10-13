@@ -72,7 +72,9 @@ jobs:
         # bash everywhere, so the Windows runner packages with the same script.
         shell: bash
         run: |
-          # The Windows runner may only have the interpreter as `python`.
+          # The Windows runner may only have the interpreter as `python`, and
+          # is not guaranteed to have shasum.
+          shasum() { if command -v shasum >/dev/null 2>&1; then command shasum "$@"; else shift 2; sha256sum "$@"; fi; }
           python="$(command -v python3 || command -v python)"
           version="$(cargo metadata --no-deps --format-version 1 | "$python" -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
           root="pv-${version}-${{ matrix.platform }}"
