@@ -12,7 +12,7 @@ name: build-php
 #
 #     lines: 8.3,8.4        platforms: darwin-arm64,linux-x86_64
 #
-# A cold full matrix is 28 jobs and several hours, which is an expensive way
+# A cold full matrix is 35 jobs and several hours, which is an expensive way
 # to discover a typo in a publish step. Widen once one wave has completed.
 
 on:
@@ -23,7 +23,7 @@ on:
         default: '7.4,8.0,8.1,8.2,8.3,8.4,8.5'
       platforms:
         description: 'Platforms to build, comma-separated'
-        default: 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64'
+        default: 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64'
   schedule:
     # Weekly, so a new upstream patch reaches users without anyone asking.
     - cron: '0 6 * * 1'
@@ -44,7 +44,7 @@ jobs:
       - id: plan
         env:
           LINES: ${{ inputs.lines || '7.4,8.0,8.1,8.2,8.3,8.4,8.5' }}
-          PLATFORMS: ${{ inputs.platforms || 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64' }}
+          PLATFORMS: ${{ inputs.platforms || 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64' }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
@@ -53,6 +53,9 @@ jobs:
               "darwin-x86_64": "macos-15-intel",
               "linux-x86_64": "ubuntu-22.04",
               "linux-arm64": "ubuntu-22.04-arm",
+              # Repackages php.net's build rather than compiling, and runs the
+              # result — which only a Windows runner can do.
+              "windows-x86_64": "windows-latest",
           }
           lines = [l.strip() for l in os.environ["LINES"].split(",") if l.strip()]
           platforms = [p.strip() for p in os.environ["PLATFORMS"].split(",") if p.strip()]
@@ -78,6 +81,10 @@ jobs:
     # version silently stops being published.
     continue-on-error: true
     timeout-minutes: 300
+    # The build is a bash script on every platform, the Windows runner included.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
