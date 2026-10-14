@@ -33,28 +33,29 @@ pub const SHIMMED: &[&str] = &[
     "phpdbg",
 ];
 
-/// The file a command's shim lives in.
+/// The files that make up a command's shim, each with its body.
 ///
 /// Windows only resolves a bare command to a file whose extension is listed
 /// in `PATHEXT`, so a shim called just `php` would be invisible there — and a
 /// symlink needs privileges most accounts do not have. A `.cmd` wrapper is
-/// the one shape that always works.
-pub fn shim_file(command: &str) -> String {
-    if cfg!(windows) {
-        format!("{command}.cmd")
-    } else {
-        command.to_string()
-    }
-}
-
-pub fn shim_body(pv: &Path, command: &str) -> String {
+/// the one shape that always works for cmd and PowerShell.
+///
+/// Git Bash is the exception: it runs a file by its shebang and ignores
+/// `.cmd`. So Windows gets the `sh` shim as well, under the bare name, with
+/// pv's path written with forward slashes, which every Windows `sh` accepts.
+pub fn shim_files(pv: &Path, command: &str) -> Vec<(String, String)> {
     #[cfg(not(windows))]
-    return sh_shim_body(pv, command);
+    return vec![(command.to_string(), sh_shim_body(pv, command))];
     #[cfg(windows)]
-    return cmd_shim_body(pv, command);
+    return vec![
+        (format!("{command}.cmd"), cmd_shim_body(pv, command)),
+        (
+            command.to_string(),
+            sh_shim_body(Path::new(&pv.to_string_lossy().replace('\\', "/")), command),
+        ),
+    ];
 }
 
-#[cfg(any(not(windows), test))]
 fn sh_shim_body(pv: &Path, command: &str) -> String {
     format!(
         "#!/bin/sh\n\
@@ -67,7 +68,6 @@ fn sh_shim_body(pv: &Path, command: &str) -> String {
 
 /// Single-quote for `/bin/sh`. Shim paths can contain spaces, and an unquoted
 /// interpreter path turns the first space into an argument boundary.
-#[cfg(any(not(windows), test))]
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
@@ -114,10 +114,14 @@ pub fn sync() -> Result<Vec<String>> {
     }
     wanted.sort();
 
-    for command in &wanted {
-        write_shim(&dir.join(shim_file(command)), &shim_body(&pv, command))?;
+    let files: Vec<(String, String)> = wanted
+        .iter()
+        .flat_map(|command| shim_files(&pv, command))
+        .collect();
+    for (file, body) in &files {
+        write_shim(&dir.join(file), body)?;
     }
-    remove_orphans(&dir, &wanted)?;
+    remove_orphans(&dir, &files)?;
     Ok(wanted)
 }
 
@@ -135,7 +139,7 @@ fn write_shim(path: &Path, body: &str) -> Result<()> {
     paths::make_executable(path)
 }
 
-fn remove_orphans(dir: &Path, wanted: &[String]) -> Result<()> {
+fn remove_orphans(dir: &Path, wanted: &[(String, String)]) -> Result<()> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(_) => return Ok(()),
@@ -145,7 +149,7 @@ fn remove_orphans(dir: &Path, wanted: &[String]) -> Result<()> {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if wanted.iter().any(|command| shim_file(command) == name) {
+        if wanted.iter().any(|(file, _)| file == name) {
             continue;
         }
         if is_pv_shim(&path)? {

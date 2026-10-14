@@ -111,14 +111,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let shim_dir = dir.path().join("shims");
         let real_dir = dir.path().join("bin");
-        let shim = shim_dir.join(shims::shim_file("composer"));
+        // The shim the platform's own lookup finds: `composer.cmd` on Windows.
+        let (file, body) = shims::shim_files(Path::new("/opt/pv"), "composer").remove(0);
+        let shim = shim_dir.join(file);
         // A real composer is a file the platform can run by that name.
         let real = real_dir.join(if cfg!(windows) {
             "composer.bat"
         } else {
             "composer"
         });
-        executable(&shim, &shims::shim_body(Path::new("/opt/pv"), "composer"));
+        executable(&shim, &body);
         executable(&real, "echo real\n");
 
         // Both are on PATH, with the shim first — exactly the layout pv's own
