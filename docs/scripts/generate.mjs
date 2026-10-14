@@ -19,6 +19,10 @@ const workflow = readFileSync(
   join(repo, '.github', 'workflows', 'build-php.yml'),
   'utf8',
 );
+const windowsScript = readFileSync(
+  join(repo, 'build', 'package-php-windows.sh'),
+  'utf8',
+);
 
 function extract(pattern, source, what) {
   const match = source.match(pattern);
@@ -65,6 +69,15 @@ for (const [, line, body] of buildScript.matchAll(
 )) {
   strips[line] = [...body.matchAll(/strip_ext (\S+)/g)].map((m) => m[1]);
 }
+
+// What the Windows packager enables out of php.net's build.
+const windowsExtensions = extract(
+  /^WANTED="([^"]+)"/m,
+  windowsScript,
+  'WANTED in build/package-php-windows.sh',
+)
+  .split(/\s+/)
+  .filter(Boolean);
 
 const runners = Object.fromEntries(
   [...workflow.matchAll(/"([a-z0-9_]+-[a-z0-9_]+)": "([^"]+)"/g)].map((m) => [
@@ -127,6 +140,24 @@ ${Object.entries(strips)
 
 Verification diffs \`php -m\` against the requested list on every build, so a
 silently dropped extension fails the build rather than reaching you.
+
+## Windows
+
+Windows ships php.net's official build rather than one of ours, so its set is
+php.net's. On top of what php.net compiles in, these ship as DLLs and are
+enabled, where the line has them:
+
+<div style="columns: 3; font-family: var(--sl-font-mono); font-size: 0.9em">
+
+${windowsExtensions.map((name) => `- ${name}`).join('\n')}
+
+</div>
+
+plus opcache and **xdebug** — xdebug.org's official build, verified against
+the SHA256 it publishes, loaded with \`xdebug.mode = off\` exactly as above.
+There is no \`php-config\` or \`phpize\` on Windows, so an extension is added
+rather than compiled: its DLL in \`bin\\ext\`, and an \`extension=\` line in
+\`etc/conf.d\`.
 `,
 );
 
@@ -138,14 +169,23 @@ writeFileSync(
     `
 Each wave builds every PHP line for every platform below, on a **native**
 runner — cross-compiling PHP to another architecture is not practical, and
-arm64 Linux in particular cannot be built from an amd64 host.
+arm64 Linux in particular cannot be built from an amd64 host. Windows is the
+exception: nothing is compiled for it.
 
 | Platform | Runner |
 |---|---|
 ${platforms.map((p) => `| \`${p}\` | \`${runners[p] ?? '—'}\` |`).join('\n')}
 
-Windows is not supported: a different toolchain entirely, and a separate
-project phase.
+## Windows
+
+PHP for Windows is built by php.net with MSVC, and pv does not try to rebuild
+it. \`windows-x86_64\` is php.net's non-thread-safe x64 build, verified against
+the sha256 php.net publishes, with xdebug.org's Xdebug added the same way. The
+Windows runner exists to run the packaged \`php.exe\` before it is published.
+
+It needs the Microsoft Visual C++ Redistributable, as every official PHP for
+Windows does, and has no \`php-fpm\`, \`php-config\` or \`phpize\`. There is no
+arm64 build; Windows on Arm runs the x64 one under emulation.
 
 ## PHP lines
 

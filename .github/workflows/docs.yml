@@ -2,8 +2,8 @@ name: docs
 
 # Build the documentation site and publish it to GitHub Pages.
 #
-# The extension list and platform matrix are generated from build/build-php.sh
-# and build-php.yml at build time, so a change to the build scripts updates the
+# The extension list and platform matrix are generated from build/build-php.sh,
+# build/package-php-windows.sh and build-php.yml at build time, so a change to the build scripts updates the
 # site on the next push — documentation that claims an extension a wave does
 # not ship is worse than none.
 
@@ -13,6 +13,7 @@ on:
     paths:
       - 'docs/**'
       - 'build/build-php.sh'
+      - 'build/package-php-windows.sh'
       - '.github/workflows/build-php.yml'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
