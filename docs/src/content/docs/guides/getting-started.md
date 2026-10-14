@@ -2,7 +2,7 @@
 title: Getting started
 description: Install pv, get a PHP, and put the shims on PATH.
 banner:
-  content: 'pv is pre-release: <strong>v0.1.0 is not published yet</strong>, so <code>install.sh</code> will not find a build until it is. Build from source in the meantime.'
+  content: 'pv is pre-release: until 1.0, commands and file formats may still change between versions.'
 ---
 
 ## Install pv
