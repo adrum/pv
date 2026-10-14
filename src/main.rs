@@ -742,14 +742,7 @@ fn cmd_resolve(pinned_only: bool, source: bool, format: Format) -> Result<ExitCo
 
 fn cmd_init(shell: &str, hook: bool) -> Result<ExitCode> {
     match shell {
-        "zsh" | "bash" | "sh" | "fish" => {}
-        // PATH only. The shims resolve the version for every command without
-        // the hook, and a hook that goes wrong takes the whole shell with it.
-        "powershell" | "pwsh" if hook => bail!(
-            "pv has no cd-time hook for {shell} — the shims switch version per \
-             directory without one, so `pv init {shell}` is all it needs"
-        ),
-        "powershell" | "pwsh" => {}
+        "zsh" | "bash" | "sh" | "fish" | "powershell" | "pwsh" => {}
         other => {
             bail!("pv has no init snippet for `{other}` — try zsh, bash, sh, fish or powershell")
         }

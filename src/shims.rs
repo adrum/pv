@@ -260,6 +260,37 @@ pub fn init_snippet(shell: &str, shims: &Path) -> String {
 pub fn hook_snippet(shell: &str, pv: &Path) -> String {
     let pv = pv.to_string_lossy().to_string();
     match shell {
+        // PowerShell has no cd event, so the hook rides on the prompt, the
+        // way bash's does on PROMPT_COMMAND. The prompt function is wrapped
+        // rather than replaced, once, so a themed prompt keeps working and a
+        // second `pv init` in the same session does not wrap it twice.
+        // $LASTEXITCODE is put back afterwards: prompts display it, and it
+        // belongs to the user's last command, not to pv.
+        "powershell" | "pwsh" => format!(
+            "\n# pv: switch on cd (optional — the shims work without it)\n\
+             function global:_pv_hook {{\n    \
+                 if ($env:PV_PHP_VERSION -and $env:PV_PHP_VERSION -ne $env:_PV_HOOK_SET) {{ return }}\n    \
+                 Remove-Item Env:PV_PHP_VERSION -ErrorAction SilentlyContinue\n    \
+                 $resolved = \"$(& '{}' resolve --pinned-only 2>$null)\".Trim()\n    \
+                 if ($resolved) {{\n        \
+                     $env:PV_PHP_VERSION = $resolved\n        \
+                     $env:_PV_HOOK_SET = $resolved\n    \
+                 }} else {{\n        \
+                     Remove-Item Env:_PV_HOOK_SET -ErrorAction SilentlyContinue\n    \
+                 }}\n\
+             }}\n\
+             if (-not $global:_pv_prompt) {{\n    \
+                 $global:_pv_prompt = $function:prompt\n    \
+                 function global:prompt {{\n        \
+                     $code = $global:LASTEXITCODE\n        \
+                     _pv_hook\n        \
+                     $global:LASTEXITCODE = $code\n        \
+                     & $global:_pv_prompt\n    \
+                 }}\n\
+             }}\n\
+             _pv_hook\n",
+            pv.replace('\'', "''")
+        ),
         "fish" => format!(
             "\n# pv: switch on cd (optional — the shims work without it)\n\
              function _pv_hook --on-variable PWD\n    \
@@ -366,7 +397,7 @@ mod tests {
 
     #[test]
     fn the_hook_runs_at_startup_and_clears_a_stale_override() {
-        for shell in ["zsh", "fish"] {
+        for shell in ["zsh", "fish", "powershell"] {
             let hook = hook_snippet(shell, Path::new("/opt/pv"));
             assert!(
                 hook.trim_end().ends_with("_pv_hook"),
@@ -374,7 +405,9 @@ mod tests {
                  PV_PHP_VERSION outranks the new shell's own .php-version"
             );
             assert!(
-                hook.contains("unset PV_PHP_VERSION") || hook.contains("set -e PV_PHP_VERSION"),
+                hook.contains("unset PV_PHP_VERSION")
+                    || hook.contains("set -e PV_PHP_VERSION")
+                    || hook.contains("Remove-Item Env:PV_PHP_VERSION"),
                 "{shell}: must clear the override when nothing pins a version"
             );
             assert!(
