@@ -31,7 +31,8 @@ Other explicit non-goals for v1:
 
 - No web server, process supervisor, or site management.
 - No `php.ini` opinionation beyond shipping a sane default per version.
-- No Windows in the first release (see Platform reality).
+- No Windows build of PHP. Windows runs php.net's official build,
+  repackaged (see Platform reality).
 
 ## CLI surface
 
@@ -161,7 +162,7 @@ risk lives. Known-good today:
 | `linux-x86_64` | Builds cleanly, 7.4 → 8.4 |
 | `linux-arm64` | Needs a **native** runner — cross-compiling PHP to arm64 from an amd64 host is not practical (configure/build assumptions break) |
 | `darwin-x86_64` | Untried; expect it to work on a native runner |
-| `windows` | Untried, different toolchain entirely; treat as a separate project phase |
+| `windows-x86_64` | Not built: php.net's official MSVC build is repackaged, with xdebug.org's Xdebug added |
 
 Budget CI accordingly: seven PHP lines × N platforms is a large matrix, the
 builds are long, and macOS runner minutes are the expensive ones. Cache the

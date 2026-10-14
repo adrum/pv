@@ -43,7 +43,7 @@ is set, so the tool and anything it spawns agree on one PHP.
 
 | | |
 |---|---|
-| `pv init <shell>` | shell setup for `PATH` — zsh, bash, sh, fish |
+| `pv init <shell>` | shell setup for `PATH` — zsh, bash, sh, fish, powershell |
 | `pv init <shell> --hook` | …plus the optional `cd`-time switch |
 | `pv rehash` | regenerate the shims |
 | `pv doctor` | check the installation, exit non-zero on a real problem |

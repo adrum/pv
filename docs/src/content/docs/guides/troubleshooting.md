@@ -19,6 +19,9 @@ a path recorded before the shims existed — or to a deleted one, in which case
 hash -r     # or open a new shell
 ```
 
+Windows has no `hash -r`: open a new terminal. A program started before the
+shims were on the user `PATH` keeps the `PATH` it started with.
+
 **PATH order.** Something earlier on `PATH` owns the name `php`. Doctor names
 the file:
 

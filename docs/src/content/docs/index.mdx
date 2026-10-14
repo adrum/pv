@@ -110,8 +110,8 @@ hand, so it cannot claim something a build does not ship.
 ## Where it runs
 
 macOS and Linux, on both Apple Silicon and x86_64, each built on a native
-runner. The client itself is a single static Rust binary with no runtime
-dependencies. Windows is not supported.
+runner, and Windows on x64, where pv ships php.net's official build. The
+client itself is a single static Rust binary with no runtime dependencies.
 
 See [platforms](/pv/reference/platforms/) for the full matrix and the one
 caveat that matters on Linux — a glibc floor, taken deliberately so Xdebug can

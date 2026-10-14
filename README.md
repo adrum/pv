@@ -36,9 +36,16 @@ silently. `pv doctor` looks for exactly this and says so.
 curl -fsSL https://raw.githubusercontent.com/adrum/pv/main/install.sh | sh
 ```
 
-It downloads the build for your platform, verifies it against the published
-sha256, and puts `pv` in `~/.local/bin` (override with `PV_BIN_DIR`). It does
-not touch your shell profile — that line is yours to paste, below.
+On Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/adrum/pv/main/install.ps1 | iex"
+```
+
+Either one downloads the build for your platform, verifies it against the
+published sha256, and puts `pv` in `~/.local/bin` (override with `PV_BIN_DIR`).
+Neither touches your shell profile or `PATH` — that line is yours to paste,
+below.
 
 Or from source:
 
@@ -52,6 +59,15 @@ Then put the shims in front of everything else on `PATH`:
 ```sh
 eval "$(pv init zsh)"   # or bash, sh, fish — add this to your shell profile
 ```
+
+On Windows, add this to your PowerShell `$PROFILE`:
+
+```powershell
+pv init powershell | Out-String | Invoke-Expression
+```
+
+`cmd`, editors and anything else started outside PowerShell read the user
+`PATH` instead, so put `%USERPROFILE%\.pv\shims` at the front of it too.
 
 `pv doctor` confirms it worked, and says plainly what to fix when it did not.
 
@@ -109,6 +125,7 @@ Optional, and only ever a convenience:
 
 ```sh
 eval "$(pv init zsh --hook)"
+pv init powershell --hook | Out-String | Invoke-Expression   # PowerShell
 ```
 
 The hook exports `PV_PHP_VERSION` when you enter a directory that pins one, and
@@ -162,11 +179,35 @@ on macOS) and `pcov` (shared-only, like Xdebug — use `xdebug.mode=coverage`).
 | `linux-x86_64` | supported, 7.4 → 8.4 |
 | `linux-arm64` | built on a native runner; treat as newer |
 | `darwin-x86_64` | built on a native runner; treat as newer |
-| Windows | not yet — a different toolchain entirely |
+| `windows-x86_64` | php.net's official build, repackaged; 7.4 → 8.5 |
 
 Linux builds link glibc rather than static musl, because static musl has no
 `dlopen` and therefore no Xdebug. The trade is a glibc floor: binaries need a
 glibc at least as new as the build image's.
+
+### Windows
+
+PHP for Windows is built by php.net with MSVC, and nothing else builds it
+reliably — so pv does not. Each Windows artifact is php.net's non-thread-safe
+x64 build, verified against the sha256 php.net publishes, with xdebug.org's
+official Xdebug added and verified the same way. Compared with the other
+platforms:
+
+- **Extensions differ.** The set is what php.net ships, enabled to match the
+  list above where it can: apcu, igbinary, imagick, mongodb, msgpack, redis,
+  ssh2, uuid and yaml are not in it, and pcntl and posix do not exist on
+  Windows. Add another by putting its DLL in `bin\ext` and an
+  `extension=` line in `etc/conf.d`.
+- **No `php-fpm`, `php-config` or `phpize`.** php.net builds none of them for
+  Windows. `php-cgi` is there.
+- **The Microsoft Visual C++ Redistributable** must be installed, as for any
+  official PHP on Windows.
+- **x64 only.** php.net publishes no arm64 build; Windows on Arm runs it under
+  emulation.
+
+Shims are `.cmd` files, which `cmd` and PowerShell find through `PATHEXT`, plus
+an `sh` shim of the same name for Git Bash. Where the other platforms say
+`hash -r`, Windows needs a new terminal.
 
 ## What stays installable
 
@@ -200,8 +241,8 @@ file is plain text you can read and grep:
 
 ```
 ~/.pv/
-  versions/8.4.3/bin/php     extracted runtimes
-  shims/php                  real files on PATH
+  versions/8.4.3/bin/php     extracted runtimes (bin/php.exe on Windows)
+  shims/php                  real files on PATH (plus php.cmd on Windows)
   cache/                     downloaded tarballs
   config.toml                default version, resolve strategy
 ```
@@ -222,6 +263,9 @@ Produces `dist/php-<version>-<platform>.tar.gz` with a `.sha256` sidecar, after
 verifying that every requested extension is present, that nothing links a
 build-host-only library, and that the tree still works from a directory it has
 never seen. `BUILD-NOTES.md` documents the landmines.
+
+`windows-x86_64` builds nothing: `build/package-php-windows.sh` repackages
+php.net's build, and only runs the result when the host is Windows.
 
 ## Documentation
 

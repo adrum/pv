@@ -11,9 +11,16 @@ banner:
 curl -fsSL https://raw.githubusercontent.com/adrum/pv/main/install.sh | sh
 ```
 
-The script downloads the build for your platform, verifies it against the
+On Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/adrum/pv/main/install.ps1 | iex"
+```
+
+Either script downloads the build for your platform, verifies it against the
 published sha256, and puts `pv` in `~/.local/bin` (override with `PV_BIN_DIR`).
-It does not touch your shell profile — that line is yours to paste, below.
+Neither touches your shell profile or `PATH` — that line is yours to paste,
+below.
 
 From source instead:
 
@@ -42,6 +49,16 @@ is silently shadowed by whatever PHP is already there.
 
 Then open a new shell — or run `hash -r`, because shells cache command
 locations and yours may still remember a `php` from before pv existed.
+
+On Windows, add this to your PowerShell `$PROFILE` instead:
+
+```powershell
+pv init powershell | Out-String | Invoke-Expression
+```
+
+`cmd`, editors and anything started outside PowerShell read the user `PATH`,
+so put `%USERPROFILE%\.pv\shims` at the front of that as well, then open a
+new terminal.
 
 ```sh
 pv doctor
