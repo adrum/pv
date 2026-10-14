@@ -25,8 +25,9 @@ on:
         description: 'Platforms to build, comma-separated'
         default: 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64'
   schedule:
-    # Weekly, so a new upstream patch reaches users without anyone asking.
-    - cron: '0 6 * * 1'
+    # Weekly on Saturdays at 06:00 UTC, so a new upstream patch reaches users
+    # without anyone asking.
+    - cron: '0 6 * * 6'
 
 permissions:
   contents: write
