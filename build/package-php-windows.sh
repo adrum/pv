@@ -82,7 +82,9 @@ mkdir -p "${STAGE_DIR}"
 curl -fsSL --retry 3 -o "${STAGE_DIR}/releases.json" "${FEED}" ||
     fail "could not fetch ${FEED}"
 
-read -r PHP_VERSION ZIP_NAME ZIP_SHA256 COMPILER < <("${PYTHON}" - "${STAGE_DIR}/releases.json" "${PHP_LINE}" <<'PY'
+# \r in IFS throughout: Python on Windows ends its lines with \r\n, and a
+# stray \r on the last field silently breaks every comparison made with it.
+IFS=$' \t\r' read -r PHP_VERSION ZIP_NAME ZIP_SHA256 COMPILER < <("${PYTHON}" - "${STAGE_DIR}/releases.json" "${PHP_LINE}" <<'PY'
 import json, re, sys
 
 feed = json.load(open(sys.argv[1]))
@@ -114,7 +116,7 @@ PY
 # than a day is skipped. The Windows feed carries no dates, so the answer
 # comes from the resolver that has them. When the Windows build is the newer
 # of the two it is the one inside the window, and this wave leaves it alone.
-OLD_ENOUGH="$("${PYTHON}" "${SCRIPT_DIR}/resolve-php-version.py" "${PHP_LINE}")"
+OLD_ENOUGH="$("${PYTHON}" "${SCRIPT_DIR}/resolve-php-version.py" "${PHP_LINE}" | tr -d '\r')"
 if [[ "${OLD_ENOUGH}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "${OLD_ENOUGH}" != "${PHP_VERSION}" ]]; then
     newest="$(printf '%s\n%s\n' "${OLD_ENOUGH}" "${PHP_VERSION}" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
     if [[ "${newest}" == "${PHP_VERSION}" ]]; then
@@ -192,7 +194,7 @@ best = max(found, key=lambda m: tuple(int(part) for part in m.group(3).split("."
 print(best.group(3), best.group(2), best.group(1))
 PY
     fail "xdebug.org publishes no stable ${COMPILER} x64 Xdebug for PHP ${PHP_LINE}"
-read -r XDEBUG_VERSION XDEBUG_FILE XDEBUG_SHA256 < "${STAGE_DIR}/xdebug.txt"
+IFS=$' \t\r' read -r XDEBUG_VERSION XDEBUG_FILE XDEBUG_SHA256 < "${STAGE_DIR}/xdebug.txt"
 
 echo ">>> fetching ${XDEBUG_FILE}"
 curl -fsSL --retry 3 -o "${STAGE_DIR}/${XDEBUG_FILE}" "${XDEBUG_FILES}/${XDEBUG_FILE}" ||
