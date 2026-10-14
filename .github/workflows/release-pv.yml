@@ -72,11 +72,13 @@ jobs:
         # bash everywhere, so the Windows runner packages with the same script.
         shell: bash
         run: |
-          # The Windows runner may only have the interpreter as `python`, and
-          # is not guaranteed to have shasum.
-          shasum() { if command -v shasum >/dev/null 2>&1; then command shasum "$@"; else shift 2; sha256sum "$@"; fi; }
-          python="$(command -v python3 || command -v python)"
-          version="$(cargo metadata --no-deps --format-version 1 | "$python" -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
+          # The Windows runner has sha256sum but not shasum. `type -P` asks for
+          # a file on PATH: `command -v` would find this function and recurse.
+          shasum() { if type -P shasum >/dev/null; then command shasum "$@"; else shift 2; sha256sum "$@"; fi; }
+          # From cargo itself rather than a JSON parser: a Windows runner's
+          # python3 can be a Store placeholder that runs nothing.
+          id="$(cargo pkgid)"
+          version="${id##*[#@]}"
           root="pv-${version}-${{ matrix.platform }}"
           # The same shape as a PHP artifact: one top-level directory holding
           # bin/, because pv extracts with the first component stripped.
