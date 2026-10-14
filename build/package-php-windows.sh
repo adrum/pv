@@ -38,6 +38,9 @@ STAGE_DIR="${ROOT_DIR}/.build/${PHP_LINE}-${PLATFORM}"
 
 FEED="${PV_WINDOWS_FEED:-https://windows.php.net/downloads/releases/releases.json}"
 DOWNLOADS="${PV_WINDOWS_DOWNLOADS:-https://windows.php.net/downloads/releases}"
+# Every Windows Xdebug build ever published, each with its SHA256 beside it.
+XDEBUG_INDEX="${PV_XDEBUG_INDEX:-https://xdebug.org/download/historical}"
+XDEBUG_FILES="${PV_XDEBUG_FILES:-https://xdebug.org/files}"
 
 # The same placeholder the other platforms ship; `pv install` substitutes the
 # directory the tree actually landed in.
@@ -71,7 +74,7 @@ mkdir -p "${STAGE_DIR}"
 curl -fsSL --retry 3 -o "${STAGE_DIR}/releases.json" "${FEED}" ||
     fail "could not fetch ${FEED}"
 
-read -r PHP_VERSION ZIP_NAME ZIP_SHA256 < <("${PYTHON}" - "${STAGE_DIR}/releases.json" "${PHP_LINE}" <<'PY'
+read -r PHP_VERSION ZIP_NAME ZIP_SHA256 COMPILER < <("${PYTHON}" - "${STAGE_DIR}/releases.json" "${PHP_LINE}" <<'PY'
 import json, re, sys
 
 feed = json.load(open(sys.argv[1]))
@@ -79,13 +82,14 @@ line = feed.get(sys.argv[2])
 if not isinstance(line, dict):
     raise SystemExit(f"error: the feed has no PHP {sys.argv[2]}")
 builds = [
-    value for key, value in line.items()
-    if re.fullmatch(r"nts-v[cs]\d+-x64", key) and isinstance(value, dict)
+    (match.group(1), value) for key, value in line.items()
+    if (match := re.fullmatch(r"nts-(v[cs]\d+)-x64", key)) and isinstance(value, dict)
 ]
 if len(builds) != 1:
     raise SystemExit(f"error: expected one nts x64 build for {sys.argv[2]}, found {len(builds)}")
-archive = builds[0].get("zip") or {}
-print(line.get("version", ""), archive.get("path", ""), archive.get("sha256", ""))
+compiler, build = builds[0]
+archive = build.get("zip") or {}
+print(line.get("version", ""), archive.get("path", ""), archive.get("sha256", ""), compiler)
 PY
 ) || fail "could not find a Windows build of PHP ${PHP_LINE} in the feed"
 
@@ -149,6 +153,49 @@ done
 OPCACHE_DLL=0
 [[ -f "${TREE}/bin/ext/php_opcache.dll" ]] && OPCACHE_DLL=1
 
+# --- Xdebug ---------------------------------------------------------------
+# php.net does not ship a debugger, and a debugger is table stakes — the other
+# platforms build Xdebug for exactly that reason. xdebug.org publishes Windows
+# builds per PHP line and compiler, each with a SHA256, so the newest stable
+# one for this line is fetched and verified the same way PHP itself was.
+#
+# It has to match the compiler PHP was built with (vs17, vs16, vc15): an
+# extension from another toolchain refuses to load.
+curl -fsSL --retry 3 -o "${STAGE_DIR}/xdebug.html" "${XDEBUG_INDEX}" ||
+    fail "could not fetch ${XDEBUG_INDEX}"
+# Written to a file rather than read through <( ): the regex below has
+# unbalanced quotes, and older bash mis-scans a heredoc inside a substitution.
+"${PYTHON}" - "${STAGE_DIR}/xdebug.html" "${PHP_LINE}" "${COMPILER}" \
+    > "${STAGE_DIR}/xdebug.txt" <<'PY' ||
+import re, sys
+
+page = open(sys.argv[1], encoding="utf-8").read()
+line, compiler = re.escape(sys.argv[2]), re.escape(sys.argv[3])
+# Two naming schemes over the years: -8.4-nts-vs17-x86_64 and -7.4-vc15-nts-x86_64.
+# Stable releases only — the index also carries alphas and release candidates.
+link = re.compile(
+    r'title="SHA256:&nbsp;([0-9a-f]{64})"\s+href=\'/files/'
+    rf"(php_xdebug-(\d+\.\d+\.\d+)-{line}-(?:nts-{compiler}|{compiler}-nts)-x86_64\.dll)'"
+)
+found = list(link.finditer(page))
+if not found:
+    raise SystemExit(1)
+best = max(found, key=lambda m: tuple(int(part) for part in m.group(3).split(".")))
+print(best.group(3), best.group(2), best.group(1))
+PY
+    fail "xdebug.org publishes no stable ${COMPILER} x64 Xdebug for PHP ${PHP_LINE}"
+read -r XDEBUG_VERSION XDEBUG_FILE XDEBUG_SHA256 < "${STAGE_DIR}/xdebug.txt"
+
+echo ">>> fetching ${XDEBUG_FILE}"
+curl -fsSL --retry 3 -o "${STAGE_DIR}/${XDEBUG_FILE}" "${XDEBUG_FILES}/${XDEBUG_FILE}" ||
+    fail "could not download ${XDEBUG_FILES}/${XDEBUG_FILE}"
+actual="$(sha256_of "${STAGE_DIR}/${XDEBUG_FILE}")"
+[[ "${actual}" == "${XDEBUG_SHA256}" ]] ||
+    fail "checksum mismatch for ${XDEBUG_FILE} (expected ${XDEBUG_SHA256}, got ${actual})"
+echo ">>> verified ${XDEBUG_FILE}"
+# The name `zend_extension=xdebug` resolves to, inside extension_dir.
+cp "${STAGE_DIR}/${XDEBUG_FILE}" "${TREE}/bin/ext/php_xdebug.dll"
+
 cat > "${TREE}/etc/conf.d/.keep" <<'EOF'
 ; Drop .ini files here to enable extensions.
 ; pv points PHP_INI_SCAN_DIR at this directory.
@@ -172,7 +219,12 @@ EOF
         echo "extension=${ext}"
     done
     [[ "${OPCACHE_DLL}" -eq 1 ]] && echo "zend_extension=opcache"
-    true
+    # Off rather than debug, as on every platform: with mode=debug each run
+    # reaches for a debug client and warns when none is listening.
+    # XDEBUG_MODE=<mode> turns it on for one invocation.
+    echo "zend_extension=xdebug"
+    echo "xdebug.mode = off"
+    echo "xdebug.start_with_request = trigger"
 } > "${TREE}/etc/php.ini"
 
 # php.net's own license and the notices for what it bundles.
@@ -181,6 +233,9 @@ for notice in license.txt readme-redist-bins.txt; do
 done
 [[ -f "${TREE}/licenses/license.txt" ]] ||
     fail "${ZIP_NAME} carries no license.txt — refusing to ship a binary distribution without it"
+curl -fsSL --retry 3 -o "${TREE}/licenses/xdebug-LICENSE.txt" \
+    "https://raw.githubusercontent.com/xdebug/xdebug/${XDEBUG_VERSION}/LICENSE" ||
+    fail "could not fetch Xdebug ${XDEBUG_VERSION}'s license — refusing to ship it without one"
 cat > "${TREE}/licenses/README.txt" <<EOF
 PHP ${PHP_VERSION} for ${PLATFORM}.
 
@@ -188,8 +243,14 @@ This is the official build published by php.net, unmodified:
 ${DOWNLOADS}/${ZIP_NAME}
 sha256 ${ZIP_SHA256}
 
-Only etc/ and this directory were added. The build needs the Microsoft
-Visual C++ Redistributable, as every official PHP for Windows does.
+Added to it: etc/, this directory, and bin/ext/php_xdebug.dll — Xdebug
+${XDEBUG_VERSION}, the official build from xdebug.org, unmodified:
+${XDEBUG_FILES}/${XDEBUG_FILE}
+sha256 ${XDEBUG_SHA256}
+Xdebug is distributed under the Xdebug License (xdebug-LICENSE.txt).
+
+The build needs the Microsoft Visual C++ Redistributable, as every official
+PHP for Windows does.
 EOF
 
 # --- Verify ---------------------------------------------------------------
@@ -235,10 +296,12 @@ PY
     if [[ "${OPCACHE_DLL}" -eq 1 ]]; then
         grep -qx "zend opcache" <<<"${modules}" || missing+=("opcache")
     fi
+    grep -qx "xdebug" <<<"${modules}" || missing+=("xdebug")
     [[ ${#missing[@]} -eq 0 ]] || fail "php -m is missing enabled extensions: ${missing[*]}"
     echo ">>> verified: php ${reported} runs relocated with ${#ENABLED[@]} extensions loaded"
 else
-    for required in bin/php.exe bin/ext etc/php.ini licenses/license.txt; do
+    for required in bin/php.exe bin/ext/php_xdebug.dll etc/php.ini licenses/license.txt \
+                    licenses/xdebug-LICENSE.txt; do
         [[ -e "${TREE}/${required}" ]] || fail "the packaged tree has no ${required}"
     done
     echo ">>> note: not a Windows host, so the packaged php.exe was NOT run." >&2
