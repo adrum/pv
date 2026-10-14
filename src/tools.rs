@@ -8,8 +8,9 @@
 //! resolves to — which is the part that is otherwise fiddly and easy to get
 //! wrong.
 //!
-//! Each phar is stored once, in `~/.pv/tools/`, and shared by every installed
-//! PHP. A phar is bytecode; there is nothing version-specific about it.
+//! Each phar is stored once, in the pv home's `tools/`, and shared by every
+//! installed PHP. A phar is bytecode; there is nothing version-specific about
+//! it.
 
 use std::path::PathBuf;
 

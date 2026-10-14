@@ -1,4 +1,4 @@
-//! `~/.pv/config.toml` — user preferences, plain text and hand-editable.
+//! `config.toml` in the pv home — user preferences, plain text and hand-editable.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
