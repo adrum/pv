@@ -48,7 +48,15 @@ PV_PREFIX_PLACEHOLDER="@PV_PREFIX@"
 
 fail() { echo "error: $*" >&2; exit 1; }
 
-PYTHON="$(command -v python3 || command -v python || true)"
+# The first interpreter that actually runs. On Windows, python3 can be a
+# placeholder that only offers to open the Microsoft Store.
+PYTHON=""
+for candidate in python3 python py; do
+    if "${candidate}" -c 'import sys' >/dev/null 2>&1; then
+        PYTHON="${candidate}"
+        break
+    fi
+done
 [[ -n "${PYTHON}" ]] || fail "python is required to read the release feed"
 
 sha256_of() {
