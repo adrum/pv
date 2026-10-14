@@ -48,7 +48,7 @@ code — treat `1` as "unknown", not as a stable category.
 ```sh
 $ pv resolve --format json
 {
-  "binary": "/Users/you/.pv/versions/8.4.21/bin/php",
+  "binary": "/Users/you/.local/share/pv/versions/8.4.21/bin/php",
   "pinned": true,
   "source": "composer",
   "source_path": "/Users/you/code/app/composer.json",

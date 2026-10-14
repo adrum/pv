@@ -57,7 +57,8 @@ resolution stays silent about it, because that path has to work for `run` and
 
 The default strategy is `recursive`: pv walks up to the filesystem root looking
 for `.php-version`, which is what monorepos want. Set `strategy = "local"` in
-`~/.pv/config.toml` to stop at the current directory.
+pv's `config.toml` (`~/.local/share/pv/config.toml` by default) to stop at the
+current directory.
 
 Note that **every** `.php-version` in scope is checked before any
 `composer.json` — a root pin beats a package's constraint.

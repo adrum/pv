@@ -27,7 +27,7 @@ the file:
 
 ```
 problem another php comes before pv's shims: /opt/homebrew/bin/php
-        move ~/.pv/shims earlier in PATH, or remove the other php
+        move ~/.local/share/pv/shims earlier in PATH, or remove the other php
 ```
 
 `pv init` prepends, so the usual cause is a later line in your profile putting

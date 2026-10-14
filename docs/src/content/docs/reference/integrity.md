@@ -58,7 +58,7 @@ pv itself is MIT. The artifacts are a different matter: each is a binary
 distribution of PHP plus roughly fifty statically linked libraries.
 
 Every artifact carries the full license text of everything linked into it, at
-`~/.pv/versions/<version>/licenses/`. The build fails rather than shipping
+`~/.local/share/pv/versions/<version>/licenses/`. The build fails rather than shipping
 without them.
 
 Several components are LGPL — gmp, gettext, libiconv, libheif, libde265 — and

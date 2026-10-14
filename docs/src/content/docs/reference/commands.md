@@ -62,16 +62,19 @@ is set, so the tool and anything it spawns agree on one PHP.
 | | |
 |---|---|
 | `PV_PHP_VERSION` | override resolution entirely |
-| `PV_HOME` | where pv keeps state (default `~/.pv`) |
+| `PV_HOME` | where pv keeps state (default `$XDG_DATA_HOME/pv`, else `~/.local/share/pv`) |
 | `PV_MANIFEST_URL` | where to look for artifacts |
 
 ## Layout
 
-Everything lives under `~/.pv`, and every generated file is plain text you can
-read and grep:
+Everything lives in one directory, so uninstalling pv is deleting it:
+`$XDG_DATA_HOME/pv`, or `~/.local/share/pv` when that is unset. An existing
+`~/.pv` from an earlier pv is still used, Windows uses `%USERPROFILE%\.pv`, and
+`PV_HOME` overrides all of it. Every generated file is plain text you can read
+and grep:
 
 ```
-~/.pv/
+~/.local/share/pv/
   versions/8.4.3/bin/php     extracted runtimes
   versions/8.4.3/licenses/   third-party license texts
   shims/php                  real files on PATH

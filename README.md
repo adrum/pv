@@ -67,7 +67,8 @@ pv init powershell | Out-String | Invoke-Expression
 ```
 
 `cmd`, editors and anything else started outside PowerShell read the user
-`PATH` instead, so put `%USERPROFILE%\.pv\shims` at the front of it too.
+`PATH` instead, so put `%USERPROFILE%\.pv\shims` at the front of it too
+(`pv doctor` prints the exact directory).
 
 `pv doctor` confirms it worked, and says plainly what to fix when it did not.
 
@@ -115,7 +116,7 @@ When nothing pins a version, `pv` falls back to the newest installed one rather
 than failing. A version manager that refuses to run `php -v` in an unpinned
 directory is broken, whatever its error message says.
 
-Set `strategy = "local"` in `~/.pv/config.toml` to stop the ancestor walk at
+Set `strategy = "local"` in pv's `config.toml` to stop the ancestor walk at
 the current directory; the default is `recursive`, which is what monorepos
 want.
 
@@ -236,11 +237,14 @@ account needs a signed manifest, which is not in this release.
 
 ## Layout
 
-Everything lives under `~/.pv` (override with `PV_HOME`), and every generated
-file is plain text you can read and grep:
+Everything lives in one directory, so uninstalling pv is deleting it:
+`$XDG_DATA_HOME/pv`, or `~/.local/share/pv` when that is unset. An existing
+`~/.pv` from an earlier pv is still used, Windows uses `%USERPROFILE%\.pv`, and
+`PV_HOME` overrides all of it. Every generated file is plain text you can read
+and grep:
 
 ```
-~/.pv/
+~/.local/share/pv/
   versions/8.4.3/bin/php     extracted runtimes (bin/php.exe on Windows)
   shims/php                  real files on PATH (plus php.cmd on Windows)
   cache/                     downloaded tarballs

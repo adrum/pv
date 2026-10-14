@@ -57,8 +57,8 @@ pv init powershell | Out-String | Invoke-Expression
 ```
 
 `cmd`, editors and anything started outside PowerShell read the user `PATH`,
-so put `%USERPROFILE%\.pv\shims` at the front of that as well, then open a
-new terminal.
+so put `%USERPROFILE%\.pv\shims` at the front of that as well (`pv doctor`
+prints the exact directory), then open a new terminal.
 
 ```sh
 pv doctor

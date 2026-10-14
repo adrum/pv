@@ -7,7 +7,7 @@ linked libraries.
 
 Every artifact carries the full license text of everything linked into it,
 under `licenses/` inside the tarball — installed at
-`~/.pv/versions/<version>/licenses/`. That directory is generated during the
+`~/.local/share/pv/versions/<version>/licenses/`. That directory is generated during the
 build, and the build fails rather than shipping without it.
 
 ## What is linked in
