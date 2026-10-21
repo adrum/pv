@@ -256,6 +256,18 @@ FPM_BIN="${SPC_DIR}/buildroot/bin/php-fpm"
 PHP_VERSION="$("${PHP_BIN}" -r 'echo PHP_VERSION;')"
 echo ">>> built PHP ${PHP_VERSION}"
 
+# A security backport keeps the version number, so nothing downstream can tell
+# a patched build from one where the post-extract hook never ran. Check the
+# tree that was compiled.
+for p in "${SCRIPT_DIR}/patches/php-${PHP_VERSION}"/*.patch; do
+    [[ -f "${p}" ]] || continue
+    if ! (cd "${SPC_DIR}/source/php-src" && patch -p1 -R -f -s --dry-run < "${p}" >/dev/null 2>&1); then
+        echo "error: PHP ${PHP_VERSION} was built without $(basename "${p}")" >&2
+        exit 1
+    fi
+    echo ">>> confirmed $(basename "${p}") is in the built source"
+done
+
 # --- Package --------------------------------------------------------------
 # The tarball wraps everything in one top-level directory: pv extracts with the
 # first component stripped, so a flat archive lands its files in the wrong

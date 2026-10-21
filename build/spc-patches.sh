@@ -798,6 +798,42 @@ patch_php7_libphp_name() {
     done <<< "${files}"
 }
 
+# Security fixes php.net publishes for end-of-life lines as source patches
+# only, with no new release tarball. They live in build/patches/php-<version>/,
+# keyed by the exact version they were written against, so a tree of any other
+# version never sees them.
+#
+# Unlike the toolchain fixes above, failing to apply one is fatal: the binary
+# would carry the old version number either way, and a silently unpatched
+# build is indistinguishable from a patched one.
+#
+#   php-7.4.33, php-8.0.30, php-8.1.34 / CVE-2026-109618-109619.patch
+#       CVE-2026-109618 / CVE-2026-109619 (GHSA-w8hw-w9fx-j79w,
+#       GHSA-6wmf-4rv5-p3rp), "Avoid state corruption via bailout". Taken
+#       verbatim from php-src's PHP-<line>-CVE-2026-109618-109619 branches
+#       (712e60f9ed, 82f8f31b16, 1d7dec178a), announced 2026-10-21.
+apply_php_security_backports() {
+    local root="${SPC_DIR}/source/php-src"
+    local header="${root}/main/php_version.h"
+    [[ -f "${header}" ]] || { echo "error: ${header} not found" >&2; return 1; }
+    local version
+    version="$(sed -n 's/^#define PHP_VERSION "\([0-9.]*\)".*/\1/p' "${header}")"
+    local dir
+    dir="$(dirname "${_SPC_PATCHES_SELF}")/patches/php-${version}"
+    [[ -d "${dir}" ]] || return 0
+    local p
+    for p in "${dir}"/*.patch; do
+        if (cd "${root}" && patch -p1 -R -f -s --dry-run < "${p}" >/dev/null 2>&1); then
+            echo ">>> $(basename "${p}") already applied to PHP ${version}"
+        elif (cd "${root}" && patch -p1 -f -s < "${p}"); then
+            echo ">>> Applied $(basename "${p}") to PHP ${version}"
+        else
+            echo "error: $(basename "${p}") does not apply to PHP ${version}" >&2
+            return 1
+        fi
+    done
+}
+
 arm_legacy_php_buildconf_hook() {
     # PHP 7.4 / 8.0 need several php-src edits to build against a modern
     # toolchain (Xcode 26 clang + libxml2 2.13+ + ICU 77+):
@@ -847,7 +883,13 @@ arm_legacy_php_buildconf_hook() {
     7.4 | 8.0)
         export SPC_DIR
         export SPC_CMD_PREFIX_PHP_BUILDCONF="bash '${_SPC_PATCHES_SELF}' --post-extract-php-src && ./buildconf --force && sed -i.bak 's/.*GD build test failed.*/:/' configure && rm -f configure.bak"
-        echo ">>> Armed post-extract php-src hook for PHP ${line} (libxml const/attr + intl C++17 + GD test + libphp archive name)"
+        echo ">>> Armed post-extract php-src hook for PHP ${line} (libxml const/attr + intl C++17 + GD test + libphp archive name + security backports)"
+        ;;
+    8.1)
+        # 8.1 needs none of the toolchain fixes, only the security backports.
+        export SPC_DIR
+        export SPC_CMD_PREFIX_PHP_BUILDCONF="bash '${_SPC_PATCHES_SELF}' --security-backports && ./buildconf --force"
+        echo ">>> Armed post-extract php-src hook for PHP ${line} (security backports)"
         ;;
     esac
 }
@@ -998,9 +1040,17 @@ apply_all_spc_patches() {
 # each patch is idempotent (marker/pattern guarded), so a repeat run is a no-op.
 # Guarded on direct execution so sourcing (build-static.sh) never triggers it.
 # ---------------------------------------------------------------------------
-if [[ "${BASH_SOURCE[0]}" == "${0}" && "${1:-}" == "--post-extract-php-src" ]]; then
-    patch_php_libxml_attribute_unused
-    patch_php_libxml_const_callback
-    patch_php_intl_cxx17
-    patch_php7_libphp_name
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-}" in
+    --post-extract-php-src)
+        patch_php_libxml_attribute_unused
+        patch_php_libxml_const_callback
+        patch_php_intl_cxx17
+        patch_php7_libphp_name
+        apply_php_security_backports || exit 1
+        ;;
+    --security-backports)
+        apply_php_security_backports || exit 1
+        ;;
+    esac
 fi
