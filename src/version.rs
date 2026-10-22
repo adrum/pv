@@ -6,6 +6,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::str::FromStr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 
@@ -34,7 +35,27 @@ impl Version {
     pub fn to_semver(self) -> semver::Version {
         semver::Version::new(self.major, self.minor, self.patch)
     }
+
+    /// The date php.net's security support for this version's line ended, if
+    /// it has ended by `now`.
+    pub fn end_of_life(&self, now: SystemTime) -> Option<&'static str> {
+        let &(_, date, after) = END_OF_LIFE.iter().find(|(line, ..)| *line == self.line())?;
+        (now >= UNIX_EPOCH + Duration::from_secs(after)).then_some(date)
+    }
 }
+
+/// php.net's end of security support per line (php.net/supported-versions),
+/// with the first second after that day in UTC. Lines still in support are
+/// listed too, so the warning starts on time without a pv release.
+const END_OF_LIFE: &[((u64, u64), &str, u64)] = &[
+    ((7, 4), "2022-11-28", 1_669_680_000),
+    ((8, 0), "2023-11-26", 1_701_043_200),
+    ((8, 1), "2025-12-31", 1_767_225_600),
+    ((8, 2), "2026-12-31", 1_798_761_600),
+    ((8, 3), "2027-12-31", 1_830_297_600),
+    ((8, 4), "2028-12-31", 1_861_920_000),
+    ((8, 5), "2029-12-31", 1_893_456_000),
+];
 
 impl FromStr for Version {
     type Err = anyhow::Error;
@@ -247,6 +268,18 @@ mod tests {
         assert_eq!("php-8.4.3".parse::<Version>().unwrap(), v(8, 4, 3));
         assert_eq!("php8.4.3".parse::<Version>().unwrap(), v(8, 4, 3));
         assert_eq!(" v8.4.3\n".parse::<Version>().unwrap(), v(8, 4, 3));
+    }
+
+    #[test]
+    fn end_of_life_starts_the_day_after_support_ends() {
+        let at = |secs| UNIX_EPOCH + Duration::from_secs(secs);
+        // 2026-10-22: 8.1 is past its end, 8.2 is not yet.
+        assert_eq!(v(8, 1, 34).end_of_life(at(1_792_627_200)), Some("2025-12-31"));
+        assert_eq!(v(8, 2, 35).end_of_life(at(1_792_627_200)), None);
+        // Still supported through 2026-12-31, ended from the next second.
+        assert_eq!(v(8, 2, 35).end_of_life(at(1_798_761_599)), None);
+        assert_eq!(v(8, 2, 35).end_of_life(at(1_798_761_600)), Some("2026-12-31"));
+        assert_eq!(v(9, 0, 0).end_of_life(at(u32::MAX.into())), None);
     }
 
     #[test]

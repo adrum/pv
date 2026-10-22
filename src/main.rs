@@ -284,6 +284,7 @@ fn current_resolution() -> Result<Resolution> {
 fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
     let selector: Selector = version.parse()?;
     let outcome = install::install(&selector, force)?;
+    warn_if_end_of_life(&outcome.version);
     if !outcome.changed {
         println!(
             "PHP {} is already installed — `pv install {} --force` reinstalls it",
@@ -295,6 +296,20 @@ fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
     println!("installed PHP {}", outcome.version);
     print_path_advice()?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// php.net stops releasing a line at end of life, and pv's build of it then
+/// carries only the fixes php.net still publishes as source patches. Without
+/// saying so, a successful install reads as a fully patched one.
+fn warn_if_end_of_life(version: &Version) {
+    let Some(date) = version.end_of_life(std::time::SystemTime::now()) else {
+        return;
+    };
+    let (major, minor) = version.line();
+    eprintln!("warning: PHP {major}.{minor} reached end of life on {date}.");
+    eprintln!("php.net no longer releases it, so this build has only the security fixes");
+    eprintln!("php.net has published as source patches since, not every known one.");
+    eprintln!("Move to a supported line when you can: `pv install latest`.");
 }
 
 /// Everything a fresh install needs to hear, and nothing it does not.
