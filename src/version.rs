@@ -274,11 +274,17 @@ mod tests {
     fn end_of_life_starts_the_day_after_support_ends() {
         let at = |secs| UNIX_EPOCH + Duration::from_secs(secs);
         // 2026-10-22: 8.1 is past its end, 8.2 is not yet.
-        assert_eq!(v(8, 1, 34).end_of_life(at(1_792_627_200)), Some("2025-12-31"));
+        assert_eq!(
+            v(8, 1, 34).end_of_life(at(1_792_627_200)),
+            Some("2025-12-31")
+        );
         assert_eq!(v(8, 2, 35).end_of_life(at(1_792_627_200)), None);
         // Still supported through 2026-12-31, ended from the next second.
         assert_eq!(v(8, 2, 35).end_of_life(at(1_798_761_599)), None);
-        assert_eq!(v(8, 2, 35).end_of_life(at(1_798_761_600)), Some("2026-12-31"));
+        assert_eq!(
+            v(8, 2, 35).end_of_life(at(1_798_761_600)),
+            Some("2026-12-31")
+        );
         assert_eq!(v(9, 0, 0).end_of_life(at(u32::MAX.into())), None);
     }
 
