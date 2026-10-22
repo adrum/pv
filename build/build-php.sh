@@ -196,13 +196,16 @@ fi
 # picked up, and waiting it out costs nothing.
 PHP_TARGET="$(python3 "${SCRIPT_DIR}/resolve-php-version.py" "${PHP_LINE}")"
 echo ">>> resolving sources for PHP ${PHP_TARGET}"
+# php-src is always re-fetched: spc treats any cached php-src as satisfying
+# --with-php, so a build tree restored from the previous wave silently
+# rebuilds the previous patch release.
 attempts=0
 until spc download \
     --with-php="${PHP_TARGET}" \
     --for-extensions="${EXTENSIONS}${SHARED_EXTENSIONS:+,${SHARED_EXTENSIONS}}" \
     ${EXTRA_LIBS:+--for-libs="${EXTRA_LIBS}"} \
     ${XDEBUG_URL:+--custom-url="xdebug:${XDEBUG_URL}"} \
-    ${XDEBUG_URL:+--ignore-cache-sources=xdebug}
+    --ignore-cache-sources="php-src${XDEBUG_URL:+,xdebug}"
 do
     attempts=$((attempts + 1))
     if [[ "${attempts}" -ge 4 ]]; then
@@ -255,6 +258,12 @@ FPM_BIN="${SPC_DIR}/buildroot/bin/php-fpm"
 
 PHP_VERSION="$("${PHP_BIN}" -r 'echo PHP_VERSION;')"
 echo ">>> built PHP ${PHP_VERSION}"
+
+# PHP_TARGET is the bare line only when the release feed was unreachable.
+if [[ "${PHP_TARGET}" == *.*.* && "${PHP_VERSION}" != "${PHP_TARGET}" ]]; then
+    echo "error: asked for PHP ${PHP_TARGET} but built ${PHP_VERSION}" >&2
+    exit 1
+fi
 
 # A security backport keeps the version number, so nothing downstream can tell
 # a patched build from one where the post-extract hook never ran. Check the
