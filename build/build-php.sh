@@ -230,6 +230,15 @@ else
     spc doctor --auto-fix
 fi
 
+# End-of-life lines carry security backports, fetched fresh and checked against
+# the reviewed list before anything is built from them. The post-extract hook
+# applies them; it is armed for every line that has a list.
+BACKPORTS_DIR="${SPC_DIR}/backports"
+"${SCRIPT_DIR}/fetch-backports.sh" "${PHP_LINE}" "${PHP_TARGET}" "${BACKPORTS_DIR}"
+if [[ -f "${BACKPORTS_DIR}/apply.txt" ]]; then
+    export PV_BACKPORTS="${BACKPORTS_DIR}/apply.txt"
+fi
+
 # Most of the patch layer is macOS-specific: it repackages pre-built libraries
 # whose darwin .txz archives arrive corrupt, and passes arm64 flags. Linux uses
 # spc's native prebuilts, where the darwin-keyed names and flags would misfire.
@@ -268,14 +277,15 @@ fi
 # A security backport keeps the version number, so nothing downstream can tell
 # a patched build from one where the post-extract hook never ran. Check the
 # tree that was compiled.
-for p in "${SCRIPT_DIR}/patches/php-${PHP_VERSION}"/*.patch; do
-    [[ -f "${p}" ]] || continue
-    if ! (cd "${SPC_DIR}/source/php-src" && patch -p1 -R -f -s --dry-run < "${p}" >/dev/null 2>&1); then
-        echo "error: PHP ${PHP_VERSION} was built without $(basename "${p}")" >&2
+if [[ -n "${PV_BACKPORTS:-}" ]]; then
+    marker="${SPC_DIR}/source/php-src/.pv-backports"
+    if ! diff -q <(xargs -n1 basename < "${PV_BACKPORTS}") "${marker}" >/dev/null 2>&1; then
+        echo "error: PHP ${PHP_VERSION} was not built with every reviewed backport;" \
+             "the post-extract hook did not record them all in ${marker}" >&2
         exit 1
     fi
-    echo ">>> confirmed $(basename "${p}") is in the built source"
-done
+    echo ">>> confirmed $(wc -l < "${marker}" | tr -d ' ') backports ($(cut -d' ' -f3 "${BACKPORTS_DIR}/revision.txt")) are in the built source"
+fi
 
 # --- Package --------------------------------------------------------------
 # The tarball wraps everything in one top-level directory: pv extracts with the

@@ -798,40 +798,55 @@ patch_php7_libphp_name() {
     done <<< "${files}"
 }
 
-# Security fixes php.net publishes for end-of-life lines as source patches
-# only, with no new release tarball. They live in build/patches/php-<version>/,
-# keyed by the exact version they were written against, so a tree of any other
-# version never sees them.
+# Security backports for end-of-life lines, from the reviewed list that
+# build/fetch-backports.sh checked and wrote to $PV_BACKPORTS, in series order.
+# They go in before the toolchain fixes above: those are sed edits guarded on
+# what they find, while these are patches whose context has to match.
 #
-# Unlike the toolchain fixes above, failing to apply one is fatal: the binary
-# would carry the old version number either way, and a silently unpatched
-# build is indistinguishable from a patched one.
+# Unlike the toolchain fixes, failing to apply one is fatal: the binary keeps
+# the old version number either way, and a silently unpatched build is
+# indistinguishable from a patched one. The names applied are recorded in
+# php-src/.pv-backports for build-php.sh to check after the build.
 #
-#   php-7.4.33, php-8.0.30, php-8.1.34 / CVE-2026-109618-109619.patch
-#       CVE-2026-109618 / CVE-2026-109619 (GHSA-w8hw-w9fx-j79w,
-#       GHSA-6wmf-4rv5-p3rp), "Avoid state corruption via bailout". Taken
-#       verbatim from php-src's PHP-<line>-CVE-2026-109618-109619 branches
-#       (712e60f9ed, 82f8f31b16, 1d7dec178a), announced 2026-10-21.
-apply_php_security_backports() {
+# A repeat run on the same tree is a no-op by way of that record, not per
+# patch: once later patches have edited the same lines, an early one neither
+# applies nor reverse-applies, so it cannot be recognised as present.
+#
+# Each patch is dry-run first, so a failure never leaves half a patch behind.
+# Ignoring whitespace is the fallback rather than the default: spc's own
+# php-src patches strip trailing whitespace in places, which on 8.0 is enough
+# to throw off GHSA-p3x9-6h7p-cgfc's context in ext/libxml/libxml.c.
+apply_debian_backports() {
+    [[ -n "${PV_BACKPORTS:-}" ]] || return 0
     local root="${SPC_DIR}/source/php-src"
-    local header="${root}/main/php_version.h"
-    [[ -f "${header}" ]] || { echo "error: ${header} not found" >&2; return 1; }
-    local version
-    version="$(sed -n 's/^#define PHP_VERSION "\([0-9.]*\)".*/\1/p' "${header}")"
-    local dir
-    dir="$(dirname "${_SPC_PATCHES_SELF}")/patches/php-${version}"
-    [[ -d "${dir}" ]] || return 0
-    local p
-    for p in "${dir}"/*.patch; do
-        if (cd "${root}" && patch -p1 -R -f -s --dry-run < "${p}" >/dev/null 2>&1); then
-            echo ">>> $(basename "${p}") already applied to PHP ${version}"
-        elif (cd "${root}" && patch -p1 -f -s < "${p}"); then
-            echo ">>> Applied $(basename "${p}") to PHP ${version}"
+    local marker="${root}/.pv-backports"
+    if [[ -f "${marker}" ]] && diff -q <(xargs -n1 basename < "${PV_BACKPORTS}") "${marker}" >/dev/null; then
+        echo ">>> security backports already applied to this tree"
+        return 0
+    fi
+    : > "${marker}"
+    local p name applied=0 relaxed=0 present=0
+    while IFS= read -r p; do
+        [[ -n "${p}" ]] || continue
+        name="$(basename "${p}")"
+        if (cd "${root}" && patch -p1 -f -s --dry-run < "${p}" >/dev/null 2>&1); then
+            (cd "${root}" && patch -p1 -f -s --no-backup-if-mismatch < "${p}" >/dev/null)
+            applied=$((applied + 1))
+        elif (cd "${root}" && patch -p1 -l -f -s --dry-run < "${p}" >/dev/null 2>&1); then
+            (cd "${root}" && patch -p1 -l -f -s --no-backup-if-mismatch < "${p}" >/dev/null)
+            echo ">>> ${name}: applied ignoring whitespace"
+            relaxed=$((relaxed + 1))
+        elif (cd "${root}" && patch -p1 -R -f -s --dry-run < "${p}" >/dev/null 2>&1); then
+            present=$((present + 1))
         else
-            echo "error: $(basename "${p}") does not apply to PHP ${version}" >&2
+            echo "error: ${name} does not apply to this php-src tree" >&2
+            (cd "${root}" && patch -p1 -f --dry-run < "${p}" 2>&1 | grep -E 'FAILED|failed' | head -5) >&2 || true
             return 1
         fi
-    done
+        echo "${name}" >> "${marker}"
+    done < "${PV_BACKPORTS}"
+    echo ">>> Applied $((applied + relaxed)) security backports" \
+         "(${relaxed} ignoring whitespace, ${present} already present)"
 }
 
 arm_legacy_php_buildconf_hook() {
@@ -1043,14 +1058,14 @@ apply_all_spc_patches() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-}" in
     --post-extract-php-src)
+        apply_debian_backports || exit 1
         patch_php_libxml_attribute_unused
         patch_php_libxml_const_callback
         patch_php_intl_cxx17
         patch_php7_libphp_name
-        apply_php_security_backports || exit 1
         ;;
     --security-backports)
-        apply_php_security_backports || exit 1
+        apply_debian_backports || exit 1
         ;;
     esac
 fi

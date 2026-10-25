@@ -1,0 +1,173 @@
+# Security backports for PHP 7.4 from Ondřej Surý's Debian packaging:
+# https://salsa.debian.org/php-team/php, branch debian/main/7.4.
+# Reviewed against 1:7.4.33-31 (commit e9c4288).
+#
+# One line per entry in debian/patches/series, in series order:
+#   apply <sha256> <patch>   applied to php-src; the hash must still match
+#   skip  <patch>  # why     never applied
+# build/fetch-backports.sh fails the build on any patch added to the series,
+# changed, or removed since this review — read it, then list it here.
+skip  0001-libtool_fixes.patch  # Debian packaging
+skip  0002-debian_quirks.patch  # Debian packaging
+skip  0003-php-5.4.9-phpinfo.patch  # Debian packaging
+skip  0004-extension_api.patch  # Debian packaging
+skip  0005-proc_open.patch  # Debian packaging
+skip  0006-php.ini_securitynotes.patch  # Debian packaging
+skip  0007-php-5.4.7-libdb.patch  # Debian packaging
+skip  0008-Add-support-for-use-of-the-system-timezone-database.patch  # Debian packaging
+skip  0009-strcmp_null-OnUpdateErrorLog.patch  # Debian packaging
+skip  0010-qdbm-is-usr_include_qdbm.patch  # Debian packaging
+skip  0011-session_save_path.patch  # Debian packaging
+skip  0012-php-fpm-man-section-and-cleanup.patch  # Debian packaging
+skip  0013-fpm-config.patch  # Debian packaging
+skip  0014-php-fpm-sysconfdir.patch  # Debian packaging
+skip  0015-lp564920-fix-big-files.patch  # Debian packaging
+skip  0016-temporary-path-fixes-for-multiarch.patch  # Debian packaging
+skip  0017-hurd-noptrace.patch  # Debian packaging
+skip  0018-php-5.3.9-mysqlnd.patch  # Debian packaging
+skip  0019-php-5.3.9-gnusrc.patch  # Debian packaging
+skip  0020-php-5.3.3-macropen.patch  # Debian packaging
+skip  0021-php-5.2.4-embed.patch  # Debian packaging
+skip  0022-php-fpm-m68k.patch  # Debian packaging
+skip  0023-expose_all_built_and_installed_apis.patch  # Debian packaging
+skip  0024-Use-system-timezone.patch  # Debian packaging
+skip  0025-zlib-largefile-function-renaming.patch  # Debian packaging
+skip  0026-php-fpm-do-reload-on-SIGHUP.patch  # Debian packaging
+skip  0027-php-5.4.8-ldap_r.patch  # Debian packaging
+skip  0028-php-5.4.9-fixheader.patch  # Debian packaging
+skip  0029-php-5.6.0-noNO.patch  # Debian packaging
+skip  0030-php-5.6.0-oldpcre.patch  # Debian packaging
+skip  0031-hack-phpdbg-to-explicitly-link-with-libedit.patch  # Debian packaging
+skip  0032-Fix-ZEND_MM_ALIGNMENT-on-m64k.patch  # Debian packaging
+skip  0033-Add-patch-to-install-php7-module-directly-to-APXS_LI.patch  # Debian packaging
+skip  0034-Remove-W3C-validation-icon-to-not-expose-the-reader-.patch  # Debian packaging
+skip  0035-Don-t-put-INSTALL_ROOT-into-phar.phar-exec-stanza.patch  # Debian packaging
+skip  0036-XMLRPC-EPI-library-has-to-be-linked-as-lxmlrpc-epi.patch  # Debian packaging
+skip  0037-Really-expand-libdir-datadir-into-EXPANDED_LIBDIR-DA.patch  # Debian packaging
+skip  0038-Fix-ext-date-lib-parse_tz-PATH_MAX-HURD-FTBFS.patch  # Debian packaging
+skip  0039-remove-deprecated-call-and-deprecate-function-to-be-.patch  # Debian packaging
+skip  0040-Use-libenchant-2-when-available.patch  # Debian packaging
+skip  0041-libtool2.2.patch  # Debian packaging
+skip  0042-Include-all-libtool-files-from-phpize.m4.patch  # Debian packaging
+skip  0043-In-phpize-also-copy-config.guess-config.sub-ltmain.s.patch  # Debian packaging
+skip  0044-Don-t-use-hrtimers-on-GNU-Hurd.patch  # Debian packaging
+skip  0045-Show-packaging-credits.patch  # Debian packaging
+skip  0046-Allow-printing-credits-buffer-larger-than-4k.patch  # Debian packaging
+skip  0047-Don-t-close-the-credits-buffer-file-descriptor-too-e.patch  # Debian packaging
+skip  0048-Add-minimal-OpenSSL-3.0-patch.patch  # toolchain compat the build already handles
+skip  0049-Use-true-false-instead-of-TRUE-FALSE-in-intl.patch  # toolchain compat the build already handles
+skip  0050-ax_gcc_func_attribute-Revise-the-detection-of-unknow.patch  # toolchain compat the build already handles
+apply 959b2568ece72fed114d641292e6d6771dcfe5729ff007adb538b657c72b79d1 0051-Fix-bug-79589-ssl3_read_n-unexpected-eof-while-readi.patch
+skip  0052-adapted-README.md.patch  # Debian packaging
+skip  0053-add-information-about-binary-distributions.patch  # Debian packaging
+apply 2802ee84bd933f2819c10504710f75156bff450d5abe12b5ca9f98b4982f8acb 0054-Fix-81740-PDO-quote-may-return-unquoted-string.patch
+apply 1eec860d1a1ec0bd7c139641057d4e74753ec7dd586f765dee969a977df19d84 0055-NEWS.patch
+apply 37a184f254131c4d5bae87f8dd396bfc108bd4820bf176d537d4ed1d4a18850e 0056-Fix-GH-10187-Segfault-in-stripslashes-with-arm64.patch
+apply 9e484c74d5687e8a6c095f63a338c4b00dd5c34b93c319357b008cc647b063d6 0057-crypt-Fix-validation-of-malformed-BCrypt-hashes.patch
+apply 44e9fa38552a1be5d8953a23290027f03742aad7dbbd90b082775d13062373a5 0058-crypt-Fix-possible-buffer-overread-in-php_crypt.patch
+apply 5a1a0d9325f1af6b2eec3f770567efec97671c8a32e71cf6c4ba933c26f61416 0059-Fix-array-overrun-when-appending-slash-to-paths.patch
+apply 60172b064a441656ce188f1dba7eed1c51c9989bed9abc059c192292b5a76e4e 0060-NEWS.patch
+apply 4d0031c2f7ca94711b31b40d6e4c2e9a1a729dded9d2a99018728b4cd1bb8ae1 0061-Fix-repeated-warning-for-file-uploads-limit-exceedin.patch
+apply 6942827dccae9be2aaad663440979e4b3d34f3ce5b0be19c790352c92ce0b6f5 0062-Introduce-max_multipart_body_parts-INI.patch
+apply 0e77628edae904301763c2ec1168bbfcae15b2b487122c1d99ebfeb2c150edd4 0063-NEWS.patch
+apply 8dbc5e9099e7c897e2b4b4919943d5eb75f18681c0b4cd6d0c85dedaadc5f93d 0064-fix-NEWS-not-FPM-specific.patch
+apply a6af872265ef6c0ef97ea404b7663e17aded549bf33dccb9d3113d84f32a9ed0 0065-Fix-missing-randomness-check-and-insufficient-random.patch
+apply 9d44d823f035b80c522a57849e8ffcf34f4b87d711b673e60efb1ff0309588b9 0066-Fix-GH-11382-add-missing-hash-header-for-bin2hex.patch
+apply 524be41c7debee2f760872ea05512d3cbb651e3bb7ffc48b373163c1efae626c 0067-add-cve.patch
+apply 4edd3881a21aaa9cd9a359f7e6602f4091b42252d1ebf47d516aa39f0b17acb7 0068-Fix-buffer-mismanagement-in-phar_dir_read.patch
+apply b8f480f8ed16e71d0518f6103e3634d3012535c31cbd91f71a298b40f9fc77e9 0069-Sanitize-libxml2-globals-before-parsing.patch
+apply d7cb081ca0f624a77a36404e42f39942e2a7fdd7ecc59d300afb5a931574c7b8 0070-NEWS.patch
+apply eda8026c66023ae0f8094b1356230898fd4be17ce601feb5c266be6467a0e3e3 0071-backport-zend_test-changes-zend_test_override_libxml.patch
+skip  0072-Support-libzip_a.lib-for-VS16-libzip_a.lib-for-VS16-.patch  # Windows-only build file
+skip  0073-Add-missing-header-includes.patch  # needs the skipped Debian credits patch
+apply 65ec26a099d5c9cde53d929b35eb9056203758957bc08592a11b2ed420582af4 0074-Fix-GHSA-wpj3-hf5j-x4v4-__Host-__Secure-cookie-bypas.patch
+apply 9787f18b1417d68ee62c4b98a0a0c29ae969c71f1e1053cf4541396e1736bfa7 0075-NEWS.patch
+apply d9b19c6ed7d5f2578c1bacca3cc70fe19a55a04c3f277cc14e4d08537f01e961 0076-Fix-bug-GHSA-q6x7-frmf-grcw-password_verify-can-erro.patch
+apply 2ac8a14cf229c367655840e7048aaaf90a4ed1b0f8ac58921dca01a834709a84 0077-NEWS.patch
+apply 23ef592eb9f00a32956fb94cb9c300c7bf37b762d090f14e8cbe5296bdcf7db7 0078-Add-proc_open-escaping-for-cmd-file-execution-Backpo.patch
+apply f8d1aa76cf0ce311e449ca3a98367585f0c297ddf02bdd861a49e50c36aff748 0079-NEWS.patch
+apply be02961e9d756ab5dda4a447b632d36f5309da628cfff558e7d46bc145cb73a2 0080-Fix-GHSA-w8qr-v226-r27w.patch
+apply c79522b0d51edaf45724caaf7bf5bbce5f16765aeb4cc7314ca209907c48fe5c 0081-NEWS.patch
+apply 3e1a80ffc2cbcfaec9b60c08e28710f60f95ca3a4bae510d7b282f05129bd0eb 0082-Fix-GHSA-9fcc-425m-g385-bypass-CVE-2024-1874.patch
+apply cc97b466b050ddd5bd3a49ae727cd83c761de8af8020d478c83c7feb0d309ec3 0083-Fix-GHSA-3qgc-jrrr-25jv.patch
+apply 743044bf3f0721622d98dc040e31c53f1c88a601bcce6cbccf7afe9caba1d566 0084-Mark-CVE-2024-5585-backport-tests-for-PHP-7.4-as-EXP.patch
+apply 17cde00b665ce52c44553a0bcb681b0e866f88258043ef0dbc09cff37fa23f1e 0085-NEWS-Add-backports-from-8.1.29.patch
+apply 61f209f560fd9d6bdbf80b64270b8c2e9b310c12cc259a7fcaa48c6e5a81fedc 0086-Fix-GHSA-9pqp-7h25-4f32.patch
+apply 9e009212bd259a4945f69581f35784c78a4e5ce59e17bbd157acc4c1fadeb3aa 0087-Fix-GHSA-p99j-rfp4-xqvq.patch
+apply 7f6aec90a72fef680dd97d3008121b6ca89f4adf8911a3ab2fe92859c2670148 0088-Fix-GHSA-94p6-54jq-9mwp.patch
+apply e54c884d276826320a359bd75ff1a24ffc2b06f4e176f64c402fafd8cb9fdec7 0089-Fix-GHSA-865w-9rf3-2wh5-FPM-Logs-from-childrens-may-.patch
+apply 0026789f725515cadb5a42b2e3350e02b26e7f66fd8fbfab3134e0eab4c18c51 0090-Skip-GHSA-9pqp-7h25-4f32-test-on-Windows.patch
+apply bc702c8aa2e68bc3fef6b1b7a9decc243eea48f77deebcef129a06e68b3f2edf 0091-NEWS-for-8.1.30-backports.patch
+apply 6a12bf01fb3a0b8959dd533d9019eaaaca91b53ce88280d9d9fafc1e9d825ce7 0092-adapt-GHSA-865w-9rf3-2wh5-test-for-7.x.patch
+apply d7974fd6790b08058b97c0c58ddfc7f698281f3a17dcb6f307bdb4f8609de7df 0093-adapt-GHSA-9pqp-7h25-4f32-test-for-7.x.patch
+apply 7817fd6917fef65bdcb8689ea3c6f3863709e241c44802f9fcc90736600d71ea 0094-Fix-GHSA-5hqh-c84r-qjcv-Integer-overflow-in-the-dbli.patch
+apply 3a289b0861b8bd7ff3195996bec36d975f951903e35ab99633149c75e301e0b4 0095-Fix-GHSA-5hqh-c84r-qjcv-Integer-overflow-in-the-fire.patch
+apply 8b28fff5831cfa4be4a9847ba89ec6b029ec2d035970b6aa1db06daa682bc8ba 0096-Fix-GHSA-c5f2-jwm7-mmq2-stream-HTTP-fulluri-CRLF-inj.patch
+apply 257a27a585c8ac47713cd42d687009df19af5be9fac93c598cfbbac890df5df7 0097-Fix-GHSA-g665-fm4p-vhff-OOB-access-in-ldap_escape.patch
+apply 7befe3ba75ff8fc259dbd24aaf3abd0f33e203daf5e5275991d5e0692eebe633 0098-Fix-GHSA-r977-prxv-hc43.patch
+apply 71542274ca7f00a4954502b5d192e17b621ce14f96a44ba686f0589bd0404aa9 0099-Fix-GHSA-4w77-75f9-2c8w.patch
+apply 647d06bcb71f146f6da55998cb8f2caa6e4d56dba4ac28efa5fcfcdb180a1261 0100-NEWS-for-8.1.31-backports.patch
+apply 1e46b156aee767afd7c19b756dccf74ed3e1efbb1a67a5338a363e4690ed294a 0101-Fix-GHSA-h35g-vwh6-m678-Mysqlnd-various-heap-buffer-.patch
+apply 3a4a76130ecd1c93745c5fc9d7b0abfddf4578f55fc04acf18178cd265334ed4 0102-Fix-MySQLnd-possible-buffer-over-read-in-auth_protoc.patch
+apply f6ee2d85dbb92d6aea2636ddcbe35874adc2f66e87a7781caf591d7cc26c2b8c 0103-Avoid-using-uninitialised-struct.patch
+apply 4b17cbbd787960f3d27b95fe0bb16d8c9427aec4bc0436bc1ea5d04cf0a34cd2 0104-Change-port-for-mysqli-fake-server-auth-message-test.patch
+apply 2647b9f0e83b7f07e5dd9862c48fad56640cbaa3795a2b98551e8166600f6500 0105-Increase-MySQLi-fake-server-read-timeout-for-ASAN-jo.patch
+apply 4864c5af77fb3efac07ac4efccd6d1364650837832632424dd13ae8ba50477c1 0106-adapt-test-NEWS.patch
+apply 35c857dcedea382ac79578a8afd184ce80c28b50d9290eb6f44a07e7f91de3d7 0107-Fix-GHSA-ghsa-v8xr-gpvj-cx9g-http-header-folding.patch
+apply 844e2cd8496c975f99f04b138d3f601d35c52d16a06b70347becb106035053a8 0108-Fix-GHSA-pcmh-g36c-qc44-http-headers-without-colon.patch
+apply 3ef711ac356487cc08c960034f40c96d0ad36a19d8b275c8b4af8c2812850246 0109-Fix-GHSA-52jp-hrpf-2jff-http-redirect-location-trunc.patch
+apply 3aa11cf18e8490bc49b860306f00c50c76fd1b5619d44b95b27456fe62e605ff 0110-Fix-GHSA-hgf5-96fm-v528-http-user-header-check-of-cr.patch
+apply aa7b1172c838cf64784704cab972938554b081f5a5f7939d3d33dc2a8260fb51 0111-Fix-GH-11160-Few-tests-failed-building-with-new-libx.patch
+apply c427ef648126d7b6a94e363c1f717035aae5ef62a3bf7be2b13b179ff87261ea 0112-Backport-0a39890c-Fix-libxml2-2.12-build-due-to-API-.patch
+apply 47041e690900fe40eab6715e6d19ae968566b9e4f2ed9e9f48ab85e5cfccdcb1 0113-Backport-4fe82131-Backport-libxml2-2.13.2-fixes-1481.patch
+apply d6a6a5e40c31aa738594d6d8620394a1459cb70e3783dafcf932c8a8d3be2fbd 0114-Fix-GHSA-p3x9-6h7p-cgfc-libxml-streams-wrong-content.patch
+apply f6c0725eceef3d87da406996e19bd9b8ed0e7fba3fba3f8ec2e26d306a7d1239 0115-Fix-GHSA-wg4p-4hqh-c3g9.patch
+apply c864f5fe69c75a27d1f86af1ceda62347b46f9cda9461acd2aac1325668836f5 0116-Fix-GH-12702-libxml2-2.12.0-issue-building-from-src.patch
+apply 776745751d29bc4e45404715f4fb94d5111fa32ad7d485854f059e6f5585a3ea 0117-NEWS.patch
+apply 204e36693ccd87a3801b929d78ed5910576794b5ef8fd783e87b824737f8e83f 0118-Fix-GHSA-453j-q27h-5p8x.patch
+apply b82be9ccfa14458893cb53eaa95a299e930d5a89ece978ff0418009f36b3ff28 0119-Fix-GHSA-3cr5-j632-f35r-Null-byte-in-hostnames.patch
+apply 60421f59de364f73f694e1b7164bee48a18a7a0996a40ab2b9abf934d5b7c3fd 0120-Fix-GHSA-hrwm-9436-5mv3-pgsql-escaping-no-error-chec.patch
+apply e1e80e005654b5a89fa9830f40cc6fee0ab06fa409c4084c109af02b5826b798 0121-NEWS.patch
+apply 1bbe3796aa16718c9fb5bd047f974ac8a17f3d19c8fdf494b8dc9b41a1e1bc9d 0122-Fix-GH-20584-Information-Leak-of-Memory.patch
+apply 1d4b37d1815dbf6e2cd1cc0bb5d08990c1c62a842a342db5455687129c51e158 0123-Only-test-from-code-is-not-affected.patch
+apply 7e888b09dba86856a35478bca7103a52e3aa8d61bc67ee7482dc930c40d4917f 0124-Fix-GHSA-h96m-rvf9-jgm2.patch
+apply f5d6fdf67ee4b3b062f294b0295876bc776ff0cb88a8b59e04b4ef9a0bd9f43b 0125-Fix-GHSA-www2-q4fc-65wf.patch
+apply 7cd554db1e38feeea1cec514e477ce02e1d9d6f2b9649990f3e007b186e2c493 0126-NEWS-from-8.1.34.patch
+apply 6c64321784cf37a696d10dcccf3ccc01e25e6d6246ae11ab28190f800d134523 0127-Fix-missing-include-in-litespeed-build.patch
+skip  0128-Add-minimal-privacy-preserving-secure-DNS-telemetry-.patch  # phones home over DNS (deb.sury.org telemetry)
+apply 11caae90de715c6f832639eb3b21eb638b38be72c473a242307cf8a81a3145a3 0129-GHSA-85c2-q967-79q5-soap-Fix-stale-SOAP_GLOBAL-ref_m.patch
+apply 2c0c15e7980f44abae81d032d44e975fab0e5554ac8f78b343527ee317195e49 0130-GHSA-m33r-qmcv-p97q-soap-Fix-use-after-free-after-he.patch
+apply 6e1dd9eafeb93eac0319b12a55f6e40ba6beafbc010863ad62ebab73200ecc2c 0131-GHSA-hmxp-6pc4-f3vv-soap-Fix-broken-Apache-map-value.patch
+apply 731425a19ab0ca05f1c86e1f5f2b9dac118d32092077555a12ced58b0f19eb4d 0132-GHSA-7qg2-v9fj-4mwv-fpm-XSS-within-status-endpoint.patch
+apply be5fb0537d844bccb79d22a281ebb814e51bd303f1365eae0240a7bc34aae765 0133-Only-test-for-GHSA-wm6j-2649-pv75-mbstring-Fix-null-.patch
+apply 7d30df0795ad4c6284546ce9918e1b1aaa2327a64a2be28026e584664e2b06ea 0134-GHSA-96wq-48vp-hh57-metaphone-Fix-signed-integer-ove.patch
+apply ed683a231cdeb7c563fabe6acb6b187b81fa978e115bf72921c163b00b7be355 0135-Adjust-credits-for-GHSA-96wq-48vp-hh57.phpt.patch
+apply 441f0a2d7aea39e8eff2610a41df0b645a0c89763b72040c110d0b8ae247ba0f 0136-GHSA-m8rr-4c36-8gq4-Consistently-pass-unsigned-char-.patch
+apply bc931ea9515b379205c7f374b2641050087190fa6eb349cea73c2126c0486477 0137-NEWS-from-8.2.31.patch
+apply 17e811269fa59e5cab4e5db4dab4dd7940f29afd5dfc90b8a35fb43a9ae1e780 0138-ext-openssl-openssl_encrypt-zend-mm-heap-overflow-on.patch
+apply 39074e6b961352b59f9947c08803e11d722a513beee863cfdf49ab5f940d3280 0139-Fix-heap-buffer-overflow-in-convert-stream-filters-w.patch
+apply cb16012578d1321e09ad77a4b2bd5e3a9b900b837a34177f97d0f32655f6dbec 0140-libgd-patch-for-CVE-2026-9672.patch
+apply 4c5a307059cbfa4336eb402c6c636d04a5c4807e967d68360da9b02c11da08bb 0141-Fix-GHSA-62xp-839h-2637-FastCGI-allowed_clients-comp.patch
+apply 6b641c4470fcfb74276e8132145e7d327713a3c988a97a0f296425fd39bc82d3 0142-Fix-SQL-injection-in-ext-pgsql-via-E-.-backslash-bre.patch
+apply 0c4137da3541a9fb630fe0243ff1f1e579f368814e92de73e2f0afe342ac616d 0143-Fix-GHSA-vc5h-9ppw-p5f3-phar-circular-symlink-crash.patch
+apply 601dcb3df84b30b5d01b7e5421f5b392ccc30a09440bc3d77a89c53b407ce757 0144-logtool-changes-from-8.2.patch
+apply fe366eca3957f4059649e9b305367d882e3d5f72df9f70ca5a673338c81d92d9 0145-Fix-GHSA-vvx9-73fr-5jjx-do-not-fall-back-to-CN-if-th.patch
+apply ab044fd223f1d22522b281a73e1ecd04c4774977b32bd5da2ebaae992d811254 0146-Fix-leak-on-double-DatePeriod-__construct-call.patch
+apply bb571bf15fb14edbf3551257d858f8d2ed9c699f9d3f699873a78b9b7639162b 0147-Fix-GHSA-xr7j-rvgx-xq5p-OOB-read-in-php_openssl_matc.patch
+apply 5139020574ff0496298ddf983a692cebabd7b9683fbfb82485c64c996245f4c5 0148-NEWS-from-8.2.33.patch
+apply df7d5a617965930f4413da309c3db3dacffa8207a8863643555b50fef98f8e51 0149-Partial-Fix-GHSA-r6x9-5r99-36j7-Various-packet-overr.patch
+apply 3e9e6cec04bdd85c2cbc140cc7a9cb9f9c89c1d3335585db13baccb7271a3546 0150-re-add-new-tests-as-XFAIL-because-of-partial-fix.patch
+apply 4bcd57d270c9c217b653b12dffa3d2522d23793e1ef0e190e5d08d4bc082132f 0151-fix-new-tests-expectations-warnings-raised-instead-o.patch
+apply 9a4012351212fefb860113b3a9d1f1a27b219c591ebb0cb20ef5f3e42234053b 0152-Fix-GH-11274-POST-PATCH-request-via-file_get_content.patch
+apply f43b21092ee9d394eae9c45108f316eea5b47bb9930b73fb24dab26dd064e677 0153-Fix-GHSA-fpwc-w8rq-cr92-strip-credentials-from-user-.patch
+apply b5265d0556b47d24a62f41a9501e6920b4832802a04fc7de10830241c9a4d846 0154-Fix-GHSA-rgrp-mwpx-f6rm-unbounded-recursion-in-ext-s.patch
+apply 23f747b63f1b218d27e0de8aac4d10d64d7d49c11a256773a5bd36e1cc892824 0155-Fix-GHSA-cj93-vc83-wgqv.patch
+apply e978f78989e60b33f7faca028df412f65ec09ddf49a91bc878f6781d7083d13d 0156-Fix-GHSA-j3wh-g957-2m85-phar-tar-entry-injection.patch
+apply ac4989eba51fabc5155855d58ac984d4225c9221b62b9b26d54c8b2ffb1ed2f2 0157-Fix-GHSA-9f67-6fw4-hpfp.patch
+apply cee922f3cb02b5941447ef0154692626027e408b9dca1be6398fe7d2632d9663 0158-Fix-GHSA-ch8v-r6jh-4vvr-encode-0xFF-in-FILTER_SANITI.patch
+apply f9f23074011bbf8cf3617b03ea38117b5789e0aacc625c6caa8e64edaf5036fd 0159-ext-soap-make-GHSA-cj93-vc83-wgqv-test-lean-and-reli.patch
+apply 1ca723b390a1fa67bc59703304ba8c6bb61f7c46996efb6392e945287bc212fa 0160-Add-NEWS-entries-from-8.2.34.patch
+apply 99c15fe9b21208408507f1623bfab6045ab070d4e899e0a72e8904309064ec49 0161-fix-skipif-section.patch
+apply 97ca77871a8e0444d9bacd7ac1730a6fec25e3dd448d89a81a785df3e24507b7 0162-Fix-out-of-bounds-read-on-empty-Location-header.patch
+apply a14b844297f46bdce3877dc50b1e3edc46717ff46bd535e42ba0622696a2224d 0163-ext-standard-Fix-1-char-relative-Location-redirects-.patch
+apply f299907678a90feef3d69d8686f666a45430fa2d556dc28f59f0ad52b7e1b382 0164-Avoid-state-corruption-via-bailout.patch
