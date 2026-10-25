@@ -74,11 +74,27 @@ is_windows_host() {
     esac
 }
 
-# --- Which build ----------------------------------------------------------
-# The feed lists one patch per line: version, file and sha256, under a key
-# naming the compiler (nts-vs17-x64, nts-vs16-x64, nts-vc15-x64).
 rm -rf "${STAGE_DIR}"
 mkdir -p "${STAGE_DIR}"
+
+# --- Which build ----------------------------------------------------------
+# PV_WINDOWS_ZIP names a zip build/build-php-windows.sh compiled from source,
+# for lines php.net no longer builds; it is packaged exactly as php.net's
+# would be. Otherwise the zip is php.net's own, from the release feed.
+if [[ -n "${PV_WINDOWS_ZIP:-}" ]]; then
+    ZIP_NAME="$(basename "${PV_WINDOWS_ZIP}")"
+    [[ "${ZIP_NAME}" =~ ^php-([0-9]+\.[0-9]+\.[0-9]+)-nts-Win32-(v[cs][0-9]+)-x64\.zip$ ]] ||
+        fail "${ZIP_NAME} is not named like a php-windows-builder nts x64 zip"
+    PHP_VERSION="${BASH_REMATCH[1]}"
+    COMPILER="${BASH_REMATCH[2]}"
+    [[ "${PHP_VERSION}" == "${PHP_LINE}".* ]] || fail "${ZIP_NAME} is not PHP ${PHP_LINE}"
+    cp "${PV_WINDOWS_ZIP}" "${STAGE_DIR}/${ZIP_NAME}"
+    ZIP_SHA256="$(sha256_of "${STAGE_DIR}/${ZIP_NAME}")"
+    echo ">>> packaging ${ZIP_NAME}, built from source"
+else
+
+# The feed lists one patch per line: version, file and sha256, under a key
+# naming the compiler (nts-vs17-x64, nts-vs16-x64, nts-vc15-x64).
 curl -fsSL --retry 3 -o "${STAGE_DIR}/releases.json" "${FEED}" ||
     fail "could not fetch ${FEED}"
 
@@ -134,6 +150,8 @@ actual="$(sha256_of "${STAGE_DIR}/${ZIP_NAME}")"
 [[ "${actual}" == "${ZIP_SHA256}" ]] ||
     fail "checksum mismatch for ${ZIP_NAME} (expected ${ZIP_SHA256}, got ${actual})"
 echo ">>> verified ${ZIP_NAME}"
+
+fi
 
 # --- Package --------------------------------------------------------------
 # The zip is flat: php.exe sits beside the DLLs it loads, with extensions in
@@ -246,12 +264,21 @@ done
 curl -fsSL --retry 3 -o "${TREE}/licenses/xdebug-LICENSE.txt" \
     "https://raw.githubusercontent.com/xdebug/xdebug/${XDEBUG_VERSION}/LICENSE" ||
     fail "could not fetch Xdebug ${XDEBUG_VERSION}'s license — refusing to ship it without one"
+if [[ -n "${PV_WINDOWS_ZIP:-}" ]]; then
+    ORIGIN="Built by pv from the php.net source release, with the security backports
+listed in build/backports/php-${PHP_LINE}.list (${PV_WINDOWS_BACKPORTS:-unrecorded}),
+using php.net's php-windows-builder and its ${COMPILER} dependencies:
+https://github.com/adrum/pv/tree/main/build
+${ZIP_NAME} sha256 ${ZIP_SHA256}"
+else
+    ORIGIN="This is the official build published by php.net, unmodified:
+${DOWNLOADS}/${ZIP_NAME}
+sha256 ${ZIP_SHA256}"
+fi
 cat > "${TREE}/licenses/README.txt" <<EOF
 PHP ${PHP_VERSION} for ${PLATFORM}.
 
-This is the official build published by php.net, unmodified:
-${DOWNLOADS}/${ZIP_NAME}
-sha256 ${ZIP_SHA256}
+${ORIGIN}
 
 Added to it: etc/, this directory, and bin/ext/php_xdebug.dll — Xdebug
 ${XDEBUG_VERSION}, the official build from xdebug.org, unmodified:
