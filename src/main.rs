@@ -298,11 +298,11 @@ fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// php.net stops releasing a line at end of life. pv's macOS and Linux builds
-/// of it then carry the security backports from Ondřej Surý's Debian
-/// packaging, which php.net does not review; the Windows build is php.net's
-/// own last release, with nothing since. Without saying so, a successful
-/// install reads as a supported one.
+/// php.net stops releasing a line at end of life. pv's builds of it then carry
+/// the security backports from Ondřej Surý's Debian packaging, which php.net
+/// does not review, and on Windows still link the libraries php.net last
+/// shipped for the line. Without saying so, a successful install reads as a
+/// supported one.
 fn warn_if_end_of_life(version: &Version) {
     let Some(date) = version.end_of_life(std::time::SystemTime::now()) else {
         return;
@@ -311,11 +311,10 @@ fn warn_if_end_of_life(version: &Version) {
     eprintln!(
         "warning: PHP {major}.{minor} reached end of life on {date}, and php.net no longer releases it."
     );
+    eprintln!("pv's build adds the security fixes Ondřej Surý backports for Debian");
+    eprintln!("(deb.sury.org) where they exist, but php.net does not review them.");
     if cfg!(windows) {
-        eprintln!("This is php.net's last Windows build of it, with no security fixes since.");
-    } else {
-        eprintln!("pv's build adds the security fixes Ondřej Surý backports for Debian");
-        eprintln!("(deb.sury.org) where they exist, but php.net does not review them.");
+        eprintln!("On Windows it still bundles the libraries php.net last shipped for it.");
     }
     eprintln!("Move to a supported line when you can: `pv install latest`.");
 }
