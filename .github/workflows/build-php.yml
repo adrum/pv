@@ -54,9 +54,11 @@ jobs:
               "darwin-x86_64": "macos-15-intel",
               "linux-x86_64": "ubuntu-22.04",
               "linux-arm64": "ubuntu-22.04-arm",
-              # Repackages php.net's build rather than compiling, and runs the
-              # result — which only a Windows runner can do.
-              "windows-x86_64": "windows-latest",
+              # Repackages php.net's build and runs the result, which only a
+              # Windows runner can do. End-of-life lines are compiled instead,
+              # with php-windows-builder, which supports their vc15 and vs16
+              # toolsets on windows-2022.
+              "windows-x86_64": "windows-2022",
           }
           lines = [l.strip() for l in os.environ["LINES"].split(",") if l.strip()]
           platforms = [p.strip() for p in os.environ["PLATFORMS"].split(",") if p.strip()]

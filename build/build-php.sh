@@ -21,9 +21,13 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Windows is not built here at all: php.net's own build is repackaged, by a
-# script that shares nothing with the spc pipeline below.
+# Windows is not built by the spc pipeline below. A supported line repackages
+# php.net's own build; an end-of-life line, which php.net no longer builds and
+# which has security backports, is compiled from source with them.
 if [[ "${PLATFORM}" == windows-* ]]; then
+    if [[ -f "${SCRIPT_DIR}/backports/php-${PHP_LINE}.list" ]]; then
+        exec "${SCRIPT_DIR}/build-php-windows.sh" "${PHP_LINE}" "${PLATFORM}"
+    fi
     exec "${SCRIPT_DIR}/package-php-windows.sh" "${PHP_LINE}" "${PLATFORM}"
 fi
 
