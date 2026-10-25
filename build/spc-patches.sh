@@ -808,9 +808,10 @@ patch_php7_libphp_name() {
 # indistinguishable from a patched one. The names applied are recorded in
 # php-src/.pv-backports for build-php.sh to check after the build.
 #
-# A repeat run on the same tree is a no-op by way of that record, not per
-# patch: once later patches have edited the same lines, an early one neither
-# applies nor reverse-applies, so it cannot be recognised as present.
+# The tree must be pristine, which build-php.sh ensures by removing php-src
+# before `spc build`. There is no "already applied" shortcut: the record is
+# not part of the tarball, so it would survive a fresh extraction and vouch
+# for patches that are no longer there.
 #
 # Each patch is dry-run first, so a failure never leaves half a patch behind.
 # Ignoring whitespace is the fallback rather than the default: spc's own
@@ -820,10 +821,6 @@ apply_debian_backports() {
     [[ -n "${PV_BACKPORTS:-}" ]] || return 0
     local root="${SPC_DIR}/source/php-src"
     local marker="${root}/.pv-backports"
-    if [[ -f "${marker}" ]] && diff -q <(xargs -n1 basename < "${PV_BACKPORTS}") "${marker}" >/dev/null; then
-        echo ">>> security backports already applied to this tree"
-        return 0
-    fi
     : > "${marker}"
     local p name applied=0 relaxed=0 present=0
     while IFS= read -r p; do

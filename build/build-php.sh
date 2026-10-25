@@ -239,6 +239,12 @@ if [[ -f "${BACKPORTS_DIR}/apply.txt" ]]; then
     export PV_BACKPORTS="${BACKPORTS_DIR}/apply.txt"
 fi
 
+# The hook needs a pristine php-src, and a build tree restored from an earlier
+# wave carries that wave's, edits and leftovers included: on 2026-10-25 the
+# macOS 7.4 and 8.0 jobs failed in the hook on a restored tree and passed on a
+# fresh one. spc extracts php-src again for every build anyway.
+rm -rf "${SPC_DIR}/source/php-src"
+
 # Most of the patch layer is macOS-specific: it repackages pre-built libraries
 # whose darwin .txz archives arrive corrupt, and passes arm64 flags. Linux uses
 # spc's native prebuilts, where the darwin-keyed names and flags would misfire.
@@ -282,6 +288,13 @@ if [[ -n "${PV_BACKPORTS:-}" ]]; then
     if ! diff -q <(xargs -n1 basename < "${PV_BACKPORTS}") "${marker}" >/dev/null 2>&1; then
         echo "error: PHP ${PHP_VERSION} was not built with every reviewed backport;" \
              "the post-extract hook did not record them all in ${marker}" >&2
+        exit 1
+    fi
+    # The record says what the hook did; the newest patch, which nothing later
+    # in the series edits over, shows it is in the tree that was compiled.
+    newest="$(tail -1 "${PV_BACKPORTS}")"
+    if ! (cd "${SPC_DIR}/source/php-src" && patch -p1 -R -f -s --dry-run < "${newest}" >/dev/null 2>&1); then
+        echo "error: PHP ${PHP_VERSION} was built without $(basename "${newest}")" >&2
         exit 1
     fi
     echo ">>> confirmed $(wc -l < "${marker}" | tr -d ' ') backports ($(cut -d' ' -f3 "${BACKPORTS_DIR}/revision.txt")) are in the built source"
