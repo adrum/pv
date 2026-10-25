@@ -51,9 +51,12 @@ mkdir -p "${OUT_DIR}"
 if [[ -d "${CLONE}" ]]; then
     rm -rf "${CLONE}"
 fi
+# MSYS_NO_PATHCONV: Git for Windows' bash would otherwise rewrite the anchored
+# patterns into Windows paths (/debian/... becomes C:/Program Files/Git/...)
+# and check out nothing.
 attempts=0
 until git clone --quiet --depth 1 --filter=blob:none --sparse --branch "${BRANCH}" "${REPO}" "${CLONE}" \
-      && git -C "${CLONE}" sparse-checkout set --no-cone /debian/patches/ /debian/changelog
+      && MSYS_NO_PATHCONV=1 git -C "${CLONE}" sparse-checkout set --no-cone /debian/patches/ /debian/changelog
 do
     attempts=$((attempts + 1))
     if [[ "${attempts}" -ge 3 ]]; then
