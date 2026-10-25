@@ -824,6 +824,7 @@ apply_debian_backports() {
     : > "${marker}"
     local p name applied=0 relaxed=0 present=0
     while IFS= read -r p; do
+        p="${p%$'\r'}"
         [[ -n "${p}" ]] || continue
         name="$(basename "${p}")"
         if (cd "${root}" && patch -p1 -f -s --dry-run < "${p}" >/dev/null 2>&1); then

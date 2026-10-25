@@ -131,7 +131,9 @@ if unreviewed or changed or removed:
     raise SystemExit(1)
 
 apply = [name for name in series if reviewed[name]]
-out.write_text("".join(f"{patches / name}\n" for name in apply))
+# Forward slashes and \n even on Windows, where bash reads this: D:\a\... and
+# a trailing \r both make it look for a file that is not there.
+out.write_text("".join(f"{(patches / name).as_posix()}\n" for name in apply), newline="\n")
 print(f">>> {len(apply)} of {len(series)} patches reviewed for applying, "
       f"{len(series) - len(apply)} skipped")
 PY
