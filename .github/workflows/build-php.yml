@@ -113,6 +113,16 @@ jobs:
             echo "- **FAILED** ${{ matrix.line }} / ${{ matrix.platform }} — nothing published for it this wave" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # spc runs build commands, the post-extract php-src hook among them, with
+      # their output going to its own logs rather than the job's.
+      - name: Keep spc's logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spc-logs-${{ matrix.line }}-${{ matrix.platform }}
+          path: .spc-cache/${{ matrix.line }}-${{ matrix.platform }}/log/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         with:
           name: php-${{ matrix.line }}-${{ matrix.platform }}
