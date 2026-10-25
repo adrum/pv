@@ -53,10 +53,11 @@ if [[ -d "${CLONE}" ]]; then
 fi
 # MSYS_NO_PATHCONV: Git for Windows' bash would otherwise rewrite the anchored
 # patterns into Windows paths (/debian/... becomes C:/Program Files/Git/...)
-# and check out nothing.
+# and check out nothing. It stops every conversion, so the command runs from
+# inside the clone rather than naming it with -C.
 attempts=0
 until git clone --quiet --depth 1 --filter=blob:none --sparse --branch "${BRANCH}" "${REPO}" "${CLONE}" \
-      && MSYS_NO_PATHCONV=1 git -C "${CLONE}" sparse-checkout set --no-cone /debian/patches/ /debian/changelog
+      && (cd "${CLONE}" && MSYS_NO_PATHCONV=1 git sparse-checkout set --no-cone /debian/patches/ /debian/changelog)
 do
     attempts=$((attempts + 1))
     if [[ "${attempts}" -ge 3 ]]; then
