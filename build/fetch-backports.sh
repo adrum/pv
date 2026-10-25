@@ -54,9 +54,12 @@ fi
 # MSYS_NO_PATHCONV: Git for Windows' bash would otherwise rewrite the anchored
 # patterns into Windows paths (/debian/... becomes C:/Program Files/Git/...)
 # and check out nothing. It stops every conversion, so the command runs from
-# inside the clone rather than naming it with -C.
+# inside the clone rather than naming it with -C. core.autocrlf=false: the
+# patches must arrive byte for byte, or every reviewed sha256 mismatches and
+# none of them applies to php-src's LF sources.
 attempts=0
-until git clone --quiet --depth 1 --filter=blob:none --sparse --branch "${BRANCH}" "${REPO}" "${CLONE}" \
+until git clone --quiet --depth 1 --filter=blob:none --sparse -c core.autocrlf=false \
+          --branch "${BRANCH}" "${REPO}" "${CLONE}" \
       && (cd "${CLONE}" && MSYS_NO_PATHCONV=1 git sparse-checkout set --no-cone /debian/patches/ /debian/changelog)
 do
     attempts=$((attempts + 1))
