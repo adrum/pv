@@ -300,9 +300,9 @@ fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
 
 /// php.net stops releasing a line at end of life. pv's builds of it then carry
 /// the security backports from Ondřej Surý's Debian packaging, which php.net
-/// does not review, and on Windows still link the libraries php.net last
-/// shipped for the line. Without saying so, a successful install reads as a
-/// supported one.
+/// does not review; on Windows they are compiled against the libraries php.net
+/// last shipped for the line, which get no fixes either. Without saying so, a
+/// successful install reads as a supported one.
 fn warn_if_end_of_life(version: &Version) {
     let Some(date) = version.end_of_life(std::time::SystemTime::now()) else {
         return;
@@ -314,7 +314,7 @@ fn warn_if_end_of_life(version: &Version) {
     eprintln!("pv's build adds the security fixes Ondřej Surý backports for Debian");
     eprintln!("(deb.sury.org) where they exist, but php.net does not review them.");
     if cfg!(windows) {
-        eprintln!("On Windows it still bundles the libraries php.net last shipped for it.");
+        eprintln!("The libraries it bundles, OpenSSL among them, are php.net's last for it.");
     }
     eprintln!("Move to a supported line when you can: `pv install latest`.");
 }
