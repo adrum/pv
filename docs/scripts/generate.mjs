@@ -170,7 +170,7 @@ writeFileSync(
 Each wave builds every PHP line for every platform below, on a **native**
 runner — cross-compiling PHP to another architecture is not practical, and
 arm64 Linux in particular cannot be built from an amd64 host. Windows is the
-exception: nothing is compiled for it.
+exception: it is compiled only for lines php.net no longer builds.
 
 | Platform | Runner |
 |---|---|
@@ -182,6 +182,14 @@ PHP for Windows is built by php.net with MSVC, and pv does not try to rebuild
 it. \`windows-x86_64\` is php.net's non-thread-safe x64 build, verified against
 the sha256 php.net publishes, with xdebug.org's Xdebug added the same way. The
 Windows runner exists to run the packaged \`php.exe\` before it is published.
+
+The end-of-life lines with security backports (see \`build/backports/\`) are
+the exception. php.net's last Windows build of such a line never gets another
+fix, so pv compiles one on \`windows-2022\`: the php.net source release with
+the reviewed backports applied, built by php.net's own php-windows-builder
+with the dependencies php.net last shipped for that compiler. Those
+dependencies are frozen, so the fixes are to PHP, not to the libraries it
+bundles.
 
 It needs the Microsoft Visual C++ Redistributable, as every official PHP for
 Windows does, and has no \`php-fpm\`, \`php-config\` or \`phpize\`. There is no
