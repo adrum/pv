@@ -22,13 +22,21 @@
 # file as `bash <self> --post-extract-php-src`.
 _SPC_PATCHES_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
+# The macOS architecture the darwin layer builds for: the host's, since every
+# platform builds on a native runner. spc names its pre-built archives
+# <lib>-<SPC_ARCH>-darwin.txz.
+case "$(uname -m)" in
+    x86_64) DARWIN_ARCH="x86_64"; SPC_ARCH="x86_64";  OPENSSL_TARGET="darwin64-x86_64-cc" ;;
+    *)      DARWIN_ARCH="arm64";  SPC_ARCH="aarch64"; OPENSSL_TARGET="darwin64-arm64-cc" ;;
+esac
+
 txz_is_valid() {
     xz -dc "$1" 2>/dev/null | tar -tf - >/dev/null 2>&1
 }
 
 scan_corrupt_txz() {
     local txz
-    for txz in "${SPC_DIR}/downloads/"*-aarch64-darwin.txz; do
+    for txz in "${SPC_DIR}/downloads/"*-"${SPC_ARCH}"-darwin.txz; do
         [[ -f "${txz}" ]] || continue
         if ! txz_is_valid "${txz}"; then
             echo ">>> corrupt pre-built ${txz##*/} — removing"
@@ -54,7 +62,7 @@ wipe_troublesome_prebuilts() {
     # archive is trusted and the from-source build never runs — the flag goes
     # missing with nothing failing anywhere.
     for lib in gmp ncurses libssh2 sqlite; do
-        rm -f "${SPC_DIR}/downloads/${lib}-aarch64-darwin.txz" 2>/dev/null || true
+        rm -f "${SPC_DIR}/downloads/${lib}-${SPC_ARCH}-darwin.txz" 2>/dev/null || true
     done
 }
 
@@ -63,12 +71,12 @@ wipe_troublesome_prebuilts() {
 #     autoconf-static    ./configure --enable-static --disable-shared
 #     libiconv-static    autoconf-static + --enable-extra-encodings (CP437 et al)
 #     zlib-static        ./configure --static       (zlib's custom configure)
-#     openssl-static     ./Configure darwin64-arm64-cc no-shared
+#     openssl-static     ./Configure darwin64-<arch>-cc no-shared
 #     ncurses-static     ./configure --without-shared --enable-widec
 #     icu-static         (cd source && ./runConfigureICU MacOSX ...)
 repackage_lib() {
     local name="$1" src_glob="$2" style="$3"
-    local txz="${SPC_DIR}/downloads/${name}-aarch64-darwin.txz"
+    local txz="${SPC_DIR}/downloads/${name}-${SPC_ARCH}-darwin.txz"
     if [[ -f "${txz}" ]] && txz_is_valid "${txz}"; then
         return 0
     fi
@@ -131,7 +139,7 @@ repackage_lib() {
             autoconf-static)
                 ./configure --prefix="${work}/install" \
                     --enable-static --disable-shared \
-                    --with-pic CFLAGS="-arch arm64 -mmacosx-version-min=11.0"
+                    --with-pic CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0"
                 ;;
             libiconv-static)
                 # PHP's iconv sanity check (assert iconv('UTF-8','CP437',...))
@@ -139,10 +147,10 @@ repackage_lib() {
                 # only ships when --enable-extra-encodings is passed.
                 ./configure --prefix="${work}/install" \
                     --enable-static --disable-shared --enable-extra-encodings \
-                    --with-pic CFLAGS="-arch arm64 -mmacosx-version-min=11.0"
+                    --with-pic CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0"
                 ;;
             zlib-static)
-                CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC" \
+                CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -fPIC" \
                     ./configure --prefix="${work}/install" --static
                 ;;
             icu-static)
@@ -152,8 +160,8 @@ repackage_lib() {
                 # NOTE: keep icuio enabled — spc's postgres recipe checks for
                 # icu-io.pc and bails if it's missing.
                 cd source || exit 1
-                CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC" \
-                CXXFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC" \
+                CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -fPIC" \
+                CXXFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -fPIC" \
                     ./runConfigureICU MacOSX \
                         --prefix="${work}/install" \
                         --enable-static --disable-shared \
@@ -175,7 +183,7 @@ repackage_lib() {
                 # them inside the main library. --enable-termcap adds the
                 # termcap-compat entry points libedit actually calls.
                 unset TERMINFO TERMINFO_DIRS TIC TICDIR
-                CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC" \
+                CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -fPIC" \
                     ./configure --prefix="${work}/install" \
                         --with-default-terminfo-dir="${work}/install/share/terminfo" \
                         --with-terminfo-dirs="${work}/install/share/terminfo" \
@@ -191,7 +199,7 @@ repackage_lib() {
                 # makes our static PHP's TLS work out of the box. (Using a
                 # build-time tmp dir would leave PHP with no trust roots and
                 # every HTTPS call would fail with certificate-verify errors.)
-                ./Configure darwin64-arm64-cc no-shared \
+                ./Configure "${OPENSSL_TARGET}" no-shared \
                     --prefix="${work}/install" \
                     --openssldir=/etc/ssl \
                     -mmacosx-version-min=11.0
@@ -211,7 +219,7 @@ repackage_lib() {
                 ;;
             cmake-static)
                 # CMake-only libs (brotli) — no ./configure. Static + PIC +
-                # arm64, tests off, installed into ${work}/install for the
+                # native arch, tests off, installed into ${work}/install for the
                 # common packager below. BROTLI_DISABLE_TESTS is brotli-specific
                 # but harmless (CMake ignores unknown cache vars with a warning).
                 cmake -S . -B _build \
@@ -221,7 +229,7 @@ repackage_lib() {
                     -DBROTLI_DISABLE_TESTS=ON \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                    -DCMAKE_OSX_ARCHITECTURES="${DARWIN_ARCH}" \
                     -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
                 cmake --build _build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
                 cmake --install _build
@@ -236,7 +244,7 @@ repackage_lib() {
                 # this needs exactly one dependency, not two.
                 local ssl_prefix="${SPC_DIR}/.ssl-prefix"
                 if [[ ! -f "${ssl_prefix}/lib/libcrypto.a" ]]; then
-                    local ssl_txz="${SPC_DIR}/downloads/openssl-aarch64-darwin.txz"
+                    local ssl_txz="${SPC_DIR}/downloads/openssl-${SPC_ARCH}-darwin.txz"
                     if [[ -f "${ssl_txz}" ]] && txz_is_valid "${ssl_txz}"; then
                         mkdir -p "${ssl_prefix}"
                         tar -xf "${ssl_txz}" -C "${ssl_prefix}" --strip-components=1
@@ -248,7 +256,7 @@ repackage_lib() {
                         # refetches the unusable one and dies later with a
                         # message that says nothing about OpenSSL.
                         echo ">>> error: no OpenSSL to build libssh2 against —" \
-                             "expected downloads/openssl-aarch64-darwin.txz" >&2
+                             "expected downloads/openssl-${SPC_ARCH}-darwin.txz" >&2
                         exit 1
                     fi
                 fi
@@ -264,7 +272,7 @@ repackage_lib() {
                     -DOPENSSL_USE_STATIC_LIBS=ON \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                    -DCMAKE_OSX_ARCHITECTURES="${DARWIN_ARCH}" \
                     -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
                 cmake --build _build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
                 cmake --install _build
@@ -279,7 +287,7 @@ repackage_lib() {
                 # preprocessor define rather than a ./configure switch.
                 ./configure --prefix="${work}/install" \
                     --enable-static --disable-shared --with-pic \
-                    CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -DSQLITE_ENABLE_COLUMN_METADATA=1"
+                    CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -DSQLITE_ENABLE_COLUMN_METADATA=1"
                 ;;
             libaom-cmake)
                 # libaom (AV1) — pulled in by libheif/libavif for AVIF support.
@@ -288,7 +296,18 @@ repackage_lib() {
                 # the static lib in place; skip the test suite/testdata, docs,
                 # examples and CLI tools (multi-minute, none of which imagick
                 # links). arm64 needs no nasm — libaom uses NEON intrinsics.
-                cmake -S . -B _build \
+                # x86_64's SIMD is nasm or yasm assembly, and without either
+                # cmake stops; fall back to the generic C build there, which
+                # only slows AVIF encoding.
+                local aom_cpu=()
+                if [[ "${DARWIN_ARCH}" == "x86_64" ]] && ! command -v nasm >/dev/null 2>&1 \
+                   && ! command -v yasm >/dev/null 2>&1; then
+                    echo ">>> note: no nasm or yasm — building libaom without x86 SIMD"
+                    aom_cpu=(-DAOM_TARGET_CPU=generic)
+                fi
+                # ${a[@]+...}: bash 3.2, macOS's /bin/bash, calls an empty
+                # array unbound under set -u.
+                cmake -S . -B _build ${aom_cpu[@]+"${aom_cpu[@]}"} \
                     -DCMAKE_INSTALL_PREFIX="${work}/install" \
                     -DCMAKE_INSTALL_LIBDIR=lib \
                     -DBUILD_SHARED_LIBS=OFF \
@@ -300,7 +319,7 @@ repackage_lib() {
                     -DCONFIG_PIC=1 \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                    -DCMAKE_OSX_ARCHITECTURES="${DARWIN_ARCH}" \
                     -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
                 cmake --build _build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
                 cmake --install _build
@@ -326,7 +345,7 @@ repackage_lib() {
                     -DWEBP_BUILD_EXTRAS=OFF \
                     -DCMAKE_BUILD_TYPE=Release \
                     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-                    -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                    -DCMAKE_OSX_ARCHITECTURES="${DARWIN_ARCH}" \
                     -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
                 cmake --build _build -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
                 cmake --install _build
@@ -338,7 +357,7 @@ repackage_lib() {
                 # the two files consumers need: the archive + bzlib.h.
                 make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" libbz2.a \
                     CC=cc \
-                    CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC -O2 -D_FILE_OFFSET_BITS=64 -Wall -Winline"
+                    CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -fPIC -O2 -D_FILE_OFFSET_BITS=64 -Wall -Winline"
                 mkdir -p "${work}/install/lib" "${work}/install/include"
                 cp libbz2.a "${work}/install/lib/"
                 cp bzlib.h "${work}/install/include/"
@@ -350,7 +369,7 @@ repackage_lib() {
                 # and liblz4.pc (whose prefix the .pc rewrite below repoints).
                 make -C lib -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" \
                     BUILD_SHARED=no BUILD_STATIC=yes \
-                    CFLAGS="-arch arm64 -mmacosx-version-min=11.0 -fPIC -O2"
+                    CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0 -fPIC -O2"
                 make -C lib install \
                     PREFIX="${work}/install" \
                     BUILD_SHARED=no BUILD_STATIC=yes
@@ -363,7 +382,7 @@ repackage_lib() {
                     --enable-static --disable-shared --with-pic \
                     --disable-xz --disable-xzdec --disable-lzmadec \
                     --disable-lzmainfo --disable-scripts --disable-doc \
-                    CFLAGS="-arch arm64 -mmacosx-version-min=11.0"
+                    CFLAGS="-arch ${DARWIN_ARCH} -mmacosx-version-min=11.0"
                 ;;
             *)
                 echo "error: unknown build style ${style}" >&2
@@ -546,7 +565,7 @@ guard_stale_buildroot() {
     if [[ -n "${foreign}" ]]; then
         echo ">>> buildroot references another build tree (${foreign##*/}) — wiping stale state"
         rm -rf "${SPC_DIR}/buildroot"
-        rm -f "${SPC_DIR}/downloads/"*-aarch64-darwin.txz 2>/dev/null || true
+        rm -f "${SPC_DIR}/downloads/"*-"${SPC_ARCH}"-darwin.txz 2>/dev/null || true
         return
     fi
 
@@ -557,7 +576,7 @@ guard_stale_buildroot() {
     fi
     echo ">>> buildroot missing OpenSSL artifacts — wiping stale state"
     rm -rf "${SPC_DIR}/buildroot"
-    rm -f "${SPC_DIR}/downloads/"*-aarch64-darwin.txz 2>/dev/null || true
+    rm -f "${SPC_DIR}/downloads/"*-"${SPC_ARCH}"-darwin.txz 2>/dev/null || true
 }
 
 # Some libs are configured in spc as `provide-pre-built: true` (e.g.,
