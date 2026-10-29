@@ -862,6 +862,15 @@ apply_debian_backports() {
         fi
         echo "${name}" >> "${marker}"
     done < "${PV_BACKPORTS}"
+    # The backports edit Zend/zend_vm_def.h and patch the files generated from
+    # it alongside, so the generated files are already right. Left older than
+    # their source, make regenerates them with whatever php the runner has,
+    # and on the Intel runner that produced a zend_vm_opcodes.h 8.1 could not
+    # compile. Mark them current.
+    local generated
+    for generated in Zend/zend_vm_execute.h Zend/zend_vm_opcodes.h Zend/zend_vm_opcodes.c; do
+        [[ -f "${root}/${generated}" ]] && touch "${root}/${generated}"
+    done
     echo ">>> Applied $((applied + relaxed)) security backports" \
          "(${relaxed} ignoring whitespace, ${present} already present)"
 }
