@@ -797,6 +797,23 @@ patch_php_libxml_const_callback() {
 # upstream 8.1's build/Makefile.global. Runs before ./buildconf --force, so the
 # regenerated configure and Makefile both carry it. Pattern-guarded, so it's a
 # no-op on 8.0+ where upstream already renamed it.
+# On x86_64, PHP 7.4 and 8.0 built but aborted at startup with "stack buffer
+# overflow" (__stack_chk_fail) in zend_new_interned_string_request, into which
+# clang had inlined zend_string_equal_val's inline assembly. php-src marks that
+# function zend_never_inline from 8.1 (6339938c7e, for valgrind's sake), and
+# 8.1 and later build and run on the same runner. Do the same here. arm64 has
+# no such assembly, so this changes nothing there.
+patch_php_zend_string_equal_noinline() {
+    local f="${SPC_DIR}/source/php-src/Zend/zend_string.c"
+    [[ -f "${f}" ]] || return 0
+    grep -q 'ZEND_API zend_bool ZEND_FASTCALL zend_string_equal_val(' "${f}" || return 0
+    sed -i.bak \
+        's/^ZEND_API zend_bool ZEND_FASTCALL zend_string_equal_val(/ZEND_API zend_never_inline zend_bool ZEND_FASTCALL zend_string_equal_val(/' \
+        "${f}"
+    rm -f "${f}.bak"
+    echo ">>> Marked zend_string_equal_val zend_never_inline (inlined x86_64 asm aborts 7.4/8.0)"
+}
+
 patch_php7_libphp_name() {
     local root="${SPC_DIR}/source/php-src"
     [[ -d "${root}" ]] || return 0
@@ -1089,6 +1106,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         patch_php_libxml_const_callback
         patch_php_intl_cxx17
         patch_php7_libphp_name
+        patch_php_zend_string_equal_noinline
         ;;
     --security-backports)
         apply_debian_backports || exit 1
