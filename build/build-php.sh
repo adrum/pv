@@ -426,5 +426,12 @@ find "${STAGE_DIR}/${ARCHIVE_ROOT}" -type l -delete
 mkdir -p "${DIST_DIR}"
 tar -czf "${DIST_DIR}/${TARBALL}" -C "${STAGE_DIR}" "${ARCHIVE_ROOT}"
 (cd "${DIST_DIR}" && shasum -a 256 "${TARBALL}" > "${TARBALL}.sha256")
+# Which build of this version it is, for the manifest's `build` field: a
+# rebuild keeps the version, so this is how pv tells it apart.
+BUILD="pv build $(date -u +%Y-%m-%d)"
+if [[ -n "${PV_BACKPORTS:-}" ]]; then
+    BUILD+=", with deb.sury.org backports $(cut -d' ' -f3 "${BACKPORTS_DIR}/revision.txt")"
+fi
+echo "${BUILD}" > "${DIST_DIR}/${TARBALL}.build"
 
 echo "built dist/${TARBALL} ($(du -h "${DIST_DIR}/${TARBALL}" | awk '{print $1}'))"

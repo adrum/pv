@@ -141,6 +141,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
+            dist/*.tar.gz.build
           if-no-files-found: error
 
   publish:
@@ -153,7 +154,7 @@ jobs:
           path: incoming
       - run: |
           mkdir -p dist
-          find incoming -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} dist/ \;
+          find incoming -type f \( -name '*.tar.gz' -o -name '*.sha256' -o -name '*.build' \) -exec cp {} dist/ \;
           ls -l dist
 
       - name: Ensure the rolling release exists

@@ -38,6 +38,16 @@ def read_sha256(sidecar: Path) -> str:
     return digest.lower()
 
 
+def read_build(sidecar: Path) -> str | None:
+    """The one-line build description, if the build wrote one."""
+    if not sidecar.exists():
+        return None
+    text = sidecar.read_text().strip()
+    if "\n" in text or len(text) > 200:
+        raise SystemExit(f"{sidecar} is not a single short line: {text[:80]!r}")
+    return text or None
+
+
 def load_previous(source: str) -> dict:
     """The published manifest, or an error.
 
@@ -114,6 +124,12 @@ def main() -> int:
             "sha256": read_sha256(sidecar),
             "size": tarball.stat().st_size,
         }
+        # Which build of the version this is ("php.net build 8.4.27-1"), from
+        # an optional .build sidecar. A rebuild keeps the version, so without
+        # it nothing tells a user which build they have.
+        build = read_build(tarball.with_suffix(tarball.suffix + ".build"))
+        if build:
+            entry["build"] = build
         # A rebuilt artifact replaces the published one for that platform,
         # which is how a fixed build reaches machines that already installed
         # the broken one: the recorded hash no longer matches and pv reinstalls.

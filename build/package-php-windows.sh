@@ -90,6 +90,7 @@ if [[ -n "${PV_WINDOWS_ZIP:-}" ]]; then
     [[ "${PHP_VERSION}" == "${PHP_LINE}".* ]] || fail "${ZIP_NAME} is not PHP ${PHP_LINE}"
     cp "${PV_WINDOWS_ZIP}" "${STAGE_DIR}/${ZIP_NAME}"
     ZIP_SHA256="$(sha256_of "${STAGE_DIR}/${ZIP_NAME}")"
+    BUILD="pv build $(date -u +%Y-%m-%d), with deb.sury.org backports ${PV_WINDOWS_BACKPORTS:-unrecorded}"
     echo ">>> packaging ${ZIP_NAME}, built from source"
 else
 
@@ -125,6 +126,7 @@ PY
 # and the zip name and sha256 in licenses/README.txt record which one this is.
 [[ "${PHP_VERSION}" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-[0-9]+)?$ ]] ||
     fail "the feed gives no usable version for PHP ${PHP_LINE} (got '${PHP_VERSION}')"
+BUILD="php.net build ${PHP_VERSION}"
 PHP_VERSION="${BASH_REMATCH[1]}"
 [[ "${ZIP_NAME}" =~ ^php-[0-9A-Za-z._-]+\.zip$ ]] ||
     fail "the feed gives no usable file name for PHP ${PHP_VERSION} (got '${ZIP_NAME}')"
@@ -355,5 +357,7 @@ mkdir -p "${DIST_DIR}"
 (cd "${STAGE_DIR}" && tar -czf "${TARBALL}" "${ARCHIVE_ROOT}")
 mv "${STAGE_DIR}/${TARBALL}" "${DIST_DIR}/${TARBALL}"
 (cd "${DIST_DIR}" && echo "$(sha256_of "${TARBALL}")  ${TARBALL}" > "${TARBALL}.sha256")
+# Which build of this version it is, for the manifest's `build` field.
+echo "${BUILD}" > "${DIST_DIR}/${TARBALL}.build"
 
 echo "built dist/${TARBALL} ($(du -h "${DIST_DIR}/${TARBALL}" | awk '{print $1}'))"
