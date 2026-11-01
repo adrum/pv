@@ -119,8 +119,13 @@ print(line.get("version", ""), archive.get("path", ""), archive.get("sha256", ""
 PY
 ) || fail "could not find a Windows build of PHP ${PHP_LINE} in the feed"
 
-[[ "${PHP_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+# php.net republishes a Windows build of the same release with a -N suffix
+# (8.4.27-1) when it rebuilds it, as it did for 8.2-8.5 on 2026-10-26. That
+# is still PHP 8.4.27, and php.exe says so; the suffix only names the build,
+# and the zip name and sha256 in licenses/README.txt record which one this is.
+[[ "${PHP_VERSION}" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-[0-9]+)?$ ]] ||
     fail "the feed gives no usable version for PHP ${PHP_LINE} (got '${PHP_VERSION}')"
+PHP_VERSION="${BASH_REMATCH[1]}"
 [[ "${ZIP_NAME}" =~ ^php-[0-9A-Za-z._-]+\.zip$ ]] ||
     fail "the feed gives no usable file name for PHP ${PHP_VERSION} (got '${ZIP_NAME}')"
 # Fail closed: a feed entry without a real sha256 is an error, not a reason to
