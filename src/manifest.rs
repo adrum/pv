@@ -9,7 +9,8 @@
 //!         "file": "php-8.4.3-darwin-arm64.tar.gz",
 //!         "url": "https://…/php-8.4.3-darwin-arm64.tar.gz",
 //!         "sha256": "…",
-//!         "size": 41231234
+//!         "size": 41231234,
+//!         "build": "pv build 2026-11-01"
 //!       }
 //!     }
 //!   },
@@ -43,6 +44,11 @@ pub struct Artifact {
     pub sha256: String,
     #[serde(default)]
     pub size: Option<u64>,
+    /// Which build of the version this is, such as "php.net build 8.4.27-1".
+    /// A rebuild keeps the version number, so this is what tells two builds
+    /// apart. Absent from entries published before builds were recorded.
+    #[serde(default)]
+    pub build: Option<String>,
 }
 
 impl Artifact {
@@ -195,6 +201,7 @@ mod tests {
     #[test]
     fn verification_fails_closed_on_a_bad_hash() {
         let artifact = |sha: &str| Artifact {
+            build: None,
             file: "php-8.4.3-darwin-arm64.tar.gz".into(),
             url: "https://example.test/x".into(),
             sha256: sha.into(),

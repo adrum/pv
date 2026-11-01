@@ -16,6 +16,10 @@ pub struct Outcome {
     /// False when the requested version was already installed from the same
     /// artifact and nothing was downloaded.
     pub changed: bool,
+    /// True when a different build of the same version was replaced.
+    pub replaced: bool,
+    /// The manifest's description of the build now installed, if it has one.
+    pub build: Option<String>,
 }
 
 pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
@@ -53,6 +57,8 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
         return Ok(Outcome {
             version,
             changed: false,
+            replaced: false,
+            build: artifact.build.clone(),
         });
     }
 
@@ -92,6 +98,10 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
         );
     }
 
+    // A different build of the same version, not a --force reinstall of the
+    // one already there.
+    let replaced = installs::read_record(&version)?.is_some_and(|record| record.sha256 != expected);
+
     // Swap late, so a failure above leaves the previous install untouched.
     if target.exists() {
         let previous = paths::versions_dir()?.join(format!(".{version}.previous"));
@@ -127,6 +137,7 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
             // Recorded from the tree as extracted, so doctor can later speak
             // about what is installed rather than about the tarball it came in.
             files: installs::hash_tree(&version)?,
+            build: artifact.build.clone(),
         },
     )?;
 
@@ -135,5 +146,7 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
     Ok(Outcome {
         version,
         changed: true,
+        replaced,
+        build: artifact.build.clone(),
     })
 }

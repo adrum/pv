@@ -32,6 +32,9 @@ pub struct ArtifactRecord {
     /// which is why it defaults rather than failing to parse.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+    /// The manifest's `build` for the artifact, when it carried one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
 }
 
 /// The token the build leaves in place of a prefix it cannot know.

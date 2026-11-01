@@ -285,15 +285,26 @@ fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
     let selector: Selector = version.parse()?;
     let outcome = install::install(&selector, force)?;
     warn_if_end_of_life(&outcome.version);
+    let build = outcome
+        .build
+        .as_deref()
+        .map(|build| format!(" ({build})"))
+        .unwrap_or_default();
     if !outcome.changed {
         println!(
-            "PHP {} is already installed — `pv install {} --force` reinstalls it",
+            "PHP {}{build} is already installed — `pv install {} --force` reinstalls it",
             outcome.version, outcome.version
         );
         return Ok(ExitCode::SUCCESS);
     }
 
-    println!("installed PHP {}", outcome.version);
+    // Same version, different build: say so, or a rebuild that fixes
+    // something is indistinguishable from a no-op.
+    if outcome.replaced {
+        println!("updated PHP {} to a new build{build}", outcome.version);
+    } else {
+        println!("installed PHP {}{build}", outcome.version);
+    }
     print_path_advice()?;
     Ok(ExitCode::SUCCESS)
 }
@@ -382,6 +393,11 @@ fn cmd_uninstall(version: &str) -> Result<ExitCode> {
 /// Patches per minor line shown by `pv list --remote` without `--all`.
 const REMOTE_PATCHES_PER_LINE: usize = 3;
 
+/// Which build of `version` is installed, as the manifest described it.
+fn build_of(version: &Version) -> Option<String> {
+    installs::read_record(version).ok().flatten()?.build
+}
+
 fn cmd_list(remote: bool, all: bool, format: Format) -> Result<ExitCode> {
     let installed = installs::installed()?;
 
@@ -468,6 +484,7 @@ fn cmd_list(remote: bool, all: bool, format: Format) -> Result<ExitCode> {
                 "version": version.to_string(),
                 "active": is_active(version),
                 "path": installs::bin_dir(version).ok().map(|p| p.display().to_string()),
+                "build": build_of(version),
             })).collect::<Vec<_>>(),
             "active": active.as_ref().map(|resolution| serde_json::json!({
                 "version": resolution.version.to_string(),
@@ -477,11 +494,14 @@ fn cmd_list(remote: bool, all: bool, format: Format) -> Result<ExitCode> {
         }),
         || {
             for version in installed.iter().rev() {
+                let build = build_of(version)
+                    .map(|build| format!("  [{build}]"))
+                    .unwrap_or_default();
                 if is_active(version) {
                     let source = active.as_ref().expect("active is some").source.to_string();
-                    println!("* {version}  ({source})");
+                    println!("* {version}  ({source}){build}");
                 } else {
-                    println!("  {version}");
+                    println!("  {version}{build}");
                 }
             }
         },
