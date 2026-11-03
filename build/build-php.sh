@@ -21,11 +21,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-# Windows is not built by the spc pipeline below. php.net's own build is
-# repackaged, except for lines with security backports: php.net no longer
-# builds those, so they are compiled from patched source with its builder.
+# Windows is not built by the spc pipeline below. php.net's own x64 build is
+# repackaged, except for lines with security backports, which php.net no
+# longer builds; those, and every arm64 build, which php.net does not publish,
+# are compiled from source with its builder.
 if [[ "${PLATFORM}" == windows-* ]]; then
-    if [[ -f "${SCRIPT_DIR}/backports/php-${PHP_LINE}.list" ]]; then
+    if [[ "${PLATFORM}" == "windows-arm64" || -f "${SCRIPT_DIR}/backports/php-${PHP_LINE}.list" ]]; then
         exec "${SCRIPT_DIR}/build-php-windows.sh" "${PHP_LINE}" "${PLATFORM}"
     fi
     exec "${SCRIPT_DIR}/package-php-windows.sh" "${PHP_LINE}" "${PLATFORM}"

@@ -25,11 +25,18 @@ if [[ -z "${PHP_LINE}" ]]; then
     echo "usage: $0 <php-line> [platform]   e.g. $0 8.4 windows-x86_64" >&2
     exit 2
 fi
-# php.net publishes x86 and x64. There is no official arm64 build.
-if [[ "${PLATFORM}" != "windows-x86_64" ]]; then
-    echo "error: php.net publishes no build for ${PLATFORM} — only windows-x86_64" >&2
-    exit 1
-fi
+# php.net publishes x86 and x64. There is no official arm64 build, so arm64
+# only ever packages a zip build-php-windows.sh compiled (PV_WINDOWS_ZIP).
+case "${PLATFORM}" in
+    windows-x86_64) ;;
+    windows-arm64)
+        if [[ -z "${PV_WINDOWS_ZIP:-}" ]]; then
+            echo "error: php.net publishes no build for ${PLATFORM} — build one with build-php-windows.sh" >&2
+            exit 1
+        fi
+        ;;
+    *) echo "error: no Windows build for ${PLATFORM}" >&2; exit 1 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -83,14 +90,17 @@ mkdir -p "${STAGE_DIR}"
 # would be. Otherwise the zip is php.net's own, from the release feed.
 if [[ -n "${PV_WINDOWS_ZIP:-}" ]]; then
     ZIP_NAME="$(basename "${PV_WINDOWS_ZIP}")"
-    [[ "${ZIP_NAME}" =~ ^php-([0-9]+\.[0-9]+\.[0-9]+)-nts-Win32-(v[cs][0-9]+)-x64\.zip$ ]] ||
-        fail "${ZIP_NAME} is not named like a php-windows-builder nts x64 zip"
+    [[ "${ZIP_NAME}" =~ ^php-([0-9]+\.[0-9]+\.[0-9]+)-nts-Win32-(v[cs][0-9]+)-(x64|arm64)\.zip$ ]] ||
+        fail "${ZIP_NAME} is not named like a php-windows-builder nts zip"
     PHP_VERSION="${BASH_REMATCH[1]}"
     COMPILER="${BASH_REMATCH[2]}"
     [[ "${PHP_VERSION}" == "${PHP_LINE}".* ]] || fail "${ZIP_NAME} is not PHP ${PHP_LINE}"
     cp "${PV_WINDOWS_ZIP}" "${STAGE_DIR}/${ZIP_NAME}"
     ZIP_SHA256="$(sha256_of "${STAGE_DIR}/${ZIP_NAME}")"
-    BUILD="pv build $(date -u +%Y-%m-%d), with deb.sury.org backports ${PV_WINDOWS_BACKPORTS:-unrecorded}"
+    BUILD="pv build $(date -u +%Y-%m-%d)"
+    if [[ -n "${PV_WINDOWS_BACKPORTS:-}" ]]; then
+        BUILD+=", with deb.sury.org backports ${PV_WINDOWS_BACKPORTS}"
+    fi
     echo ">>> packaging ${ZIP_NAME}, built from source"
 else
 
@@ -196,6 +206,16 @@ OPCACHE_DLL=0
 #
 # It has to match the compiler PHP was built with (vs17, vs16, vc15): an
 # extension from another toolchain refuses to load.
+# A zip build-php-windows.sh compiled for arm64 already has Xdebug, built
+# in-tree from xdebug.org's source, since xdebug.org publishes no arm64 DLL.
+if [[ -n "${PV_WINDOWS_XDEBUG_VERSION:-}" ]]; then
+    [[ -f "${TREE}/bin/ext/php_xdebug.dll" ]] ||
+        fail "${ZIP_NAME} was meant to carry Xdebug ${PV_WINDOWS_XDEBUG_VERSION} but has no php_xdebug.dll"
+    XDEBUG_VERSION="${PV_WINDOWS_XDEBUG_VERSION}"
+    XDEBUG_ORIGIN="Xdebug ${XDEBUG_VERSION}, built with PHP from xdebug.org's source release:
+${XDEBUG_FILES}/xdebug-${XDEBUG_VERSION}.tgz"
+    echo ">>> using the in-tree Xdebug ${XDEBUG_VERSION}"
+else
 curl -fsSL --retry 3 -o "${STAGE_DIR}/xdebug.html" "${XDEBUG_INDEX}" ||
     fail "could not fetch ${XDEBUG_INDEX}"
 # Written to a file rather than read through <( ): the regex below has
@@ -230,6 +250,10 @@ actual="$(sha256_of "${STAGE_DIR}/${XDEBUG_FILE}")"
 echo ">>> verified ${XDEBUG_FILE}"
 # The name `zend_extension=xdebug` resolves to, inside extension_dir.
 cp "${STAGE_DIR}/${XDEBUG_FILE}" "${TREE}/bin/ext/php_xdebug.dll"
+XDEBUG_ORIGIN="Xdebug ${XDEBUG_VERSION}, the official build from xdebug.org, unmodified:
+${XDEBUG_FILES}/${XDEBUG_FILE}
+sha256 ${XDEBUG_SHA256}"
+fi
 
 cat > "${TREE}/etc/conf.d/.keep" <<'EOF'
 ; Drop .ini files here to enable extensions.
@@ -272,11 +296,15 @@ curl -fsSL --retry 3 -o "${TREE}/licenses/xdebug-LICENSE.txt" \
     "https://raw.githubusercontent.com/xdebug/xdebug/${XDEBUG_VERSION}/LICENSE" ||
     fail "could not fetch Xdebug ${XDEBUG_VERSION}'s license — refusing to ship it without one"
 if [[ -n "${PV_WINDOWS_ZIP:-}" ]]; then
-    ORIGIN="Built by pv from the php.net source release, with the security backports
-listed in build/backports/php-${PHP_LINE}.list (${PV_WINDOWS_BACKPORTS:-unrecorded}),
-using php.net's php-windows-builder and its ${COMPILER} dependencies:
+    ORIGIN="Built by pv from the php.net source release, using php.net's
+php-windows-builder and its ${COMPILER} dependencies:
 https://github.com/adrum/pv/tree/main/build
 ${ZIP_NAME} sha256 ${ZIP_SHA256}"
+    if [[ -n "${PV_WINDOWS_BACKPORTS:-}" ]]; then
+        ORIGIN+="
+With the security backports listed in build/backports/php-${PHP_LINE}.list
+(${PV_WINDOWS_BACKPORTS})."
+    fi
 else
     ORIGIN="This is the official build published by php.net, unmodified:
 ${DOWNLOADS}/${ZIP_NAME}
@@ -287,10 +315,8 @@ PHP ${PHP_VERSION} for ${PLATFORM}.
 
 ${ORIGIN}
 
-Added to it: etc/, this directory, and bin/ext/php_xdebug.dll — Xdebug
-${XDEBUG_VERSION}, the official build from xdebug.org, unmodified:
-${XDEBUG_FILES}/${XDEBUG_FILE}
-sha256 ${XDEBUG_SHA256}
+Added to it: etc/, this directory, and bin/ext/php_xdebug.dll —
+${XDEBUG_ORIGIN}
 Xdebug is distributed under the Xdebug License (xdebug-LICENSE.txt).
 
 The build needs the Microsoft Visual C++ Redistributable, as every official

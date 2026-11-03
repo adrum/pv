@@ -58,6 +58,9 @@ jobs:
               # result — which only a Windows runner can do. Lines with
               # backports are the exception; see runner() below.
               "windows-x86_64": "windows-latest",
+              # Compiled natively: php.net publishes no arm64 build. Not in the
+              # default platforms until it has been proven by hand.
+              "windows-arm64": "windows-11-arm",
           }
           lines = [l.strip() for l in os.environ["LINES"].split(",") if l.strip()]
           platforms = [p.strip() for p in os.environ["PLATFORMS"].split(",") if p.strip()]
