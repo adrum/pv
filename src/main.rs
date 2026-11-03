@@ -285,6 +285,13 @@ fn cmd_install(version: &str, force: bool) -> Result<ExitCode> {
     let selector: Selector = version.parse()?;
     let outcome = install::install(&selector, force)?;
     warn_if_end_of_life(&outcome.version);
+    if !outcome.native {
+        eprintln!(
+            "note: PHP {} has no build for this machine's own architecture; this is the {} \
+             build, which runs under emulation.",
+            outcome.version, outcome.platform
+        );
+    }
     let build = outcome
         .build
         .as_deref()
@@ -403,9 +410,10 @@ fn cmd_list(remote: bool, all: bool, format: Format) -> Result<ExitCode> {
 
     if remote {
         let config = Config::load()?;
-        let platform = platform::current()?;
+        let platforms = platform::candidates()?;
+        let platform = &platforms[0];
         let manifest = manifest::Manifest::fetch(&config.manifest_url())?;
-        let available = manifest.php_versions(&platform);
+        let available = manifest.php_versions_any(&platforms);
         if available.is_empty() {
             format.emit(
                 serde_json::json!({ "platform": platform, "available": [] }),

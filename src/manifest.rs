@@ -143,6 +143,35 @@ impl Manifest {
         })
     }
 
+    /// The versions published for any of `platforms`.
+    pub fn php_versions_any(&self, platforms: &[String]) -> Vec<Version> {
+        let mut versions: Vec<Version> = platforms
+            .iter()
+            .flat_map(|platform| self.php_versions(platform))
+            .collect();
+        versions.sort();
+        versions.dedup();
+        versions
+    }
+
+    /// The build of `version` for the first of `platforms` that has one, and
+    /// which platform that was.
+    pub fn php_artifact_any<'a>(
+        &self,
+        version: &Version,
+        platforms: &'a [String],
+    ) -> Result<(&'a str, &Artifact)> {
+        for platform in platforms {
+            if let Ok(artifact) = self.php_artifact(version, platform) {
+                return Ok((platform, artifact));
+            }
+        }
+        // None has it: the error for the preferred one says what is published.
+        let preferred = platforms.first().map(String::as_str).unwrap_or_default();
+        self.php_artifact(version, preferred)
+            .map(|artifact| (preferred, artifact))
+    }
+
     /// Newest pv release for a platform, if any.
     pub fn newest_pv(&self, platform: &str) -> Option<(Version, &Artifact)> {
         self.pv

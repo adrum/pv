@@ -26,6 +26,27 @@ pub fn current() -> Result<String> {
     Ok(format!("{os}-{arch}"))
 }
 
+/// The platforms whose PHP builds run here, best first: the native one, then
+/// any this machine runs under emulation.
+///
+/// Windows on Arm runs x64 programs, which is how a PHP line with no native
+/// arm64 build — the end-of-life ones, for now — still installs there.
+pub fn candidates() -> Result<Vec<String>> {
+    let native = current()?;
+    let mut all = vec![native.clone()];
+    if let Some(emulated) = emulated(&native) {
+        all.push(emulated.to_string());
+    }
+    Ok(all)
+}
+
+fn emulated(platform: &str) -> Option<&'static str> {
+    match platform {
+        "windows-arm64" => Some("windows-x86_64"),
+        _ => None,
+    }
+}
+
 /// The file name of the executable called `name`: `php.exe` on Windows, `php`
 /// everywhere else.
 ///
@@ -62,6 +83,14 @@ fn without_suffix<'a>(file: &'a str, suffix: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_windows_on_arm_falls_back_to_an_emulated_platform() {
+        assert_eq!(emulated("windows-arm64"), Some("windows-x86_64"));
+        assert_eq!(emulated("windows-x86_64"), None);
+        assert_eq!(emulated("darwin-arm64"), None);
+        assert_eq!(emulated("linux-arm64"), None);
+    }
 
     #[test]
     fn the_suffix_is_added_once_and_only_where_there_is_one() {

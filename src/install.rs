@@ -20,14 +20,19 @@ pub struct Outcome {
     pub replaced: bool,
     /// The manifest's description of the build now installed, if it has one.
     pub build: Option<String>,
+    /// The platform whose build was installed, and whether it is this
+    /// machine's own rather than one it runs under emulation.
+    pub platform: String,
+    pub native: bool,
 }
 
 pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
     let config = Config::load()?;
-    let platform = platform::current()?;
+    let platforms = platform::candidates()?;
     let manifest = Manifest::fetch(&config.manifest_url())?;
 
-    let available = manifest.php_versions(&platform);
+    let available = manifest.php_versions_any(&platforms);
+    let platform = &platforms[0];
     let Some(version) = selector.best(&available) else {
         return Err(Failed::new(
             exit::NOT_PUBLISHED,
@@ -37,7 +42,10 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
             ),
         ));
     };
-    let artifact = manifest.php_artifact(&version, &platform)?;
+    // The native build when there is one, else one this machine emulates.
+    let (platform, artifact) = manifest.php_artifact_any(&version, &platforms)?;
+    let platform = platform.to_string();
+    let native = platform == platforms[0];
     let expected = artifact.verified_sha256()?;
 
     // Everything below writes to paths derived from the version — the cache
@@ -59,6 +67,8 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
             changed: false,
             replaced: false,
             build: artifact.build.clone(),
+            platform,
+            native,
         });
     }
 
@@ -148,5 +158,7 @@ pub fn install(selector: &Selector, force: bool) -> Result<Outcome> {
         changed: true,
         replaced,
         build: artifact.build.clone(),
+        platform,
+        native,
     })
 }
