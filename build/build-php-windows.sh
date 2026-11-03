@@ -181,7 +181,10 @@ json.dump(config, open(path, "w"), indent=2)
             fail "$(basename "${ARM64_PORT}") does not apply to PHP ${PHP_VERSION}"
         echo ">>> applied pv's arm64 port for PHP ${PHP_LINE}"
         PV_DEPS_PHP="8.2"
-        sed -i 's/^\(\s*\)\$seriesUrl = /\1if ($env:PV_DEPS_PHP) { $depsPhpVersion = $env:PV_DEPS_PHP }\n\1$seriesUrl = /' \
+        # Take 8.2's set as published: deps-overrides.json pins older libraries
+        # for 8.2 releases below a cutoff, which 8.1.34 would otherwise count
+        # as, and those were never built for arm64.
+        sed -i 's/^\(\s*\)\$seriesUrl = /\1if ($env:PV_DEPS_PHP) { $depsPhpVersion = $env:PV_DEPS_PHP; $configPath = Join-Path $env:TEMP "pv-no-deps-overrides.json" }\n\1$seriesUrl = /' \
             "${BUILDER}/private/Get-PhpDepsPackages.ps1"
         grep -q 'PV_DEPS_PHP' "${BUILDER}/private/Get-PhpDepsPackages.ps1" ||
             fail "could not point php-windows-builder at 8.2's arm64 dependencies"
