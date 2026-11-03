@@ -26,6 +26,10 @@ Ported from these php-src commits:
   0c6fc66848  curl: add support for brotli and zstd on Windows, and
   1088c7de1a  Make curl brotli and zstd optional on Windows: 8.2's arm64
               libcurl links both; ext/curl/config.w32 as 8.2.35 has it
+  Debian      0042-Add-minimal-OpenSSL-3.0-patch.patch from Ondřej Surý's
+              php-team/php debian/main/8.0 (abebea2), which
+              build/backports/php-8.0.list skips, the other builds of this line
+              not needing it: 8.2's arm64 OpenSSL 3 dropped RSA_SSLV23_PADDING
 
 diff --git a/Zend/zend_cpuinfo.c b/Zend/zend_cpuinfo.c
 index 102b0f8c..b17056d4 100644
@@ -323,6 +327,31 @@ index 028a960b..44c69c60 100644
  		InterlockedIncrement64(&ZCSG(hits));
  #else
  		InterlockedIncrement(&ZCSG(hits));
+diff --git a/ext/openssl/openssl.c b/ext/openssl/openssl.c
+index 73d4f6f6..28b949d6 100644
+--- a/ext/openssl/openssl.c
++++ b/ext/openssl/openssl.c
+@@ -56,6 +56,10 @@
+ #include <openssl/ssl.h>
+ #include <openssl/pkcs12.h>
+ #include <openssl/cms.h>
++#if PHP_OPENSSL_API_VERSION >= 0x30000
++#include <openssl/core_names.h>
++#include <openssl/param_build.h>
++#endif
+ 
+ /* Common */
+ #include <time.h>
+@@ -1325,7 +1329,9 @@ PHP_MINIT_FUNCTION(openssl)
+ 	REGISTER_LONG_CONSTANT("OPENSSL_CMS_NOSIGS", CMS_NOSIGS, CONST_CS|CONST_PERSISTENT);
+ 
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_PADDING", RSA_PKCS1_PADDING, CONST_CS|CONST_PERSISTENT);
++#ifdef RSA_SSLV23_PADDING
+ 	REGISTER_LONG_CONSTANT("OPENSSL_SSLV23_PADDING", RSA_SSLV23_PADDING, CONST_CS|CONST_PERSISTENT);
++#endif
+ 	REGISTER_LONG_CONSTANT("OPENSSL_NO_PADDING", RSA_NO_PADDING, CONST_CS|CONST_PERSISTENT);
+ 	REGISTER_LONG_CONSTANT("OPENSSL_PKCS1_OAEP_PADDING", RSA_PKCS1_OAEP_PADDING, CONST_CS|CONST_PERSISTENT);
+ 
 diff --git a/ext/standard/base64.c b/ext/standard/base64.c
 index 2d67f88f..9a3cdf0a 100644
 --- a/ext/standard/base64.c
