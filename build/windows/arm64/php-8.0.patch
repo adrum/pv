@@ -26,6 +26,11 @@ Ported from these php-src commits:
   0c6fc66848  curl: add support for brotli and zstd on Windows, and
   1088c7de1a  Make curl brotli and zstd optional on Windows: 8.2's arm64
               libcurl links both; ext/curl/config.w32 as 8.2.35 has it
+  9e80947e34  VS 17 == MSVC v143 == Visual Studio 2022, and its VS 18
+              successor: toolset_get_compiler_name as 8.2.35 has it, so a
+              build with the arm64 runner's MSVC 19.4x names its archive vs17
+              rather than with the raw compiler version. winutil.c's comment
+              hunk dropped
   Debian      0042-Add-minimal-OpenSSL-3.0-patch.patch from Ondřej Surý's
               php-team/php debian/main/8.0 (abebea2), which
               build/backports/php-8.0.list skips, the other builds of this line
@@ -633,7 +638,7 @@ index 72205fac..a82017f4 100644
  
  toolset_setup_linker();
 diff --git a/win32/build/confutils.js b/win32/build/confutils.js
-index bf88cdae..267cfa1d 100644
+index bf88cdae..4a69d72d 100644
 --- a/win32/build/confutils.js
 +++ b/win32/build/confutils.js
 @@ -168,9 +168,13 @@ function probe_binary(EXE, what)
@@ -700,7 +705,22 @@ index bf88cdae..267cfa1d 100644
  	if (PHP_PGO == "yes") {
  		ar[k++] = ['Optimization', "PGO"];
  	} else if (PHP_PGI == "yes") {
-@@ -3126,10 +3135,32 @@ function toolset_get_compiler_name(short)
+@@ -3096,9 +3105,11 @@ function toolset_get_compiler_name(short)
+ 
+ 		version = probe_binary(PHP_CL).substr(0, 5).replace('.', '');
+ 
+-		if (version >= 1930) {
+-			return name;
+-		} if (version >= 1920) {
++		if (version >= 1950) {
++			name = short ? "VS18" : "Visual C++ 2026";
++		} else if (version >= 1930) {
++			name = short ? "VS17" : "Visual C++ 2022";
++		} else if (version >= 1920) {
+ 			/* NOTE - VS is intentional. Due to changes in recent Visual Studio
+ 						versioning scheme referring to the exact VC++ version is
+ 						hardly predictable. From this version on, it refers to
+@@ -3126,10 +3137,32 @@ function toolset_get_compiler_name(short)
  }
  
  
@@ -735,7 +755,7 @@ index bf88cdae..267cfa1d 100644
  	} else if (CLANG_TOOLSET) {
  		/*var command = 'cmd /c ""' + PHP_CL + '" -v"';
  		var full = execute(command + '" 2>&1"');
-@@ -3139,26 +3170,22 @@ function toolset_is_64()
+@@ -3139,26 +3172,22 @@ function toolset_is_64()
  		/* Even executed within an environment setup with vcvars32.bat,
  		clang-cl doesn't recognize the arch toolset. But as it needs
  		the VS environment, checking the arch of cl.exe is correct. */
@@ -768,7 +788,7 @@ index bf88cdae..267cfa1d 100644
  }
  
  function toolset_setup_codegen_arch()
-@@ -3172,7 +3199,7 @@ function toolset_setup_codegen_arch()
+@@ -3172,7 +3201,7 @@ function toolset_setup_codegen_arch()
  
  		if ("IA32" != arc) {
  			ERROR("Only IA32 arch is supported by --with-codegen-arch, got '" + arc + "'");
@@ -777,7 +797,7 @@ index bf88cdae..267cfa1d 100644
  			ERROR("IA32 arch is only supported with 32-bit build");
  		}
  		ADD_FLAG("CFLAGS", "/arch:" + arc);
-@@ -3232,10 +3259,10 @@ function toolset_setup_common_cflags()
+@@ -3232,10 +3261,10 @@ function toolset_setup_common_cflags()
  		// fun stuff: MS deprecated ANSI stdio and similar functions
  		// disable annoying warnings.  In addition, time_t defaults
  		// to 64-bit.  Ask for 32-bit.
@@ -791,7 +811,7 @@ index bf88cdae..267cfa1d 100644
  		}
  
  		if (PHP_DEBUG == "yes") {
-@@ -3287,10 +3314,10 @@ function toolset_setup_common_cflags()
+@@ -3287,10 +3316,10 @@ function toolset_setup_common_cflags()
  
  		ADD_FLAG("CFLAGS", "/Zc:wchar_t");
  	} else if (CLANG_TOOLSET) {
@@ -805,7 +825,7 @@ index bf88cdae..267cfa1d 100644
  		}
  		ADD_FLAG("CFLAGS", " /fallback ");
  		ADD_FLAG("CFLAGS", "-Xclang -fmodules");
-@@ -3320,6 +3347,14 @@ function toolset_setup_intrinsic_cflags()
+@@ -3320,6 +3349,14 @@ function toolset_setup_intrinsic_cflags()
  			ERROR("Can't enable intrinsics, --with-codegen-arch passed with an incompatible option. ")
  		}
  
@@ -820,7 +840,7 @@ index bf88cdae..267cfa1d 100644
  		if ("no" == PHP_NATIVE_INTRINSICS || "yes" == PHP_NATIVE_INTRINSICS) {
  			PHP_NATIVE_INTRINSICS = default_enabled;
  		}
-@@ -3347,7 +3382,7 @@ function toolset_setup_intrinsic_cflags()
+@@ -3347,7 +3384,7 @@ function toolset_setup_intrinsic_cflags()
  					}
  				}
  			}
@@ -829,7 +849,7 @@ index bf88cdae..267cfa1d 100644
  				/* SSE2 is currently the default on 32-bit. It could change later,
  					for now no need to pass it. But, if SSE only was chosen,
  					/arch:SSE is required. */
-@@ -3412,7 +3447,7 @@ function toolset_setup_build_mode()
+@@ -3412,7 +3449,7 @@ function toolset_setup_build_mode()
  {
  	if (PHP_DEBUG == "yes") {
  		ADD_FLAG("CFLAGS", "/LDd /MDd /Od /D _DEBUG /D ZEND_DEBUG=1 " +
@@ -838,7 +858,7 @@ index bf88cdae..267cfa1d 100644
  		ADD_FLAG("LDFLAGS", "/debug");
  		// Avoid problems when linking to release libraries that use the release
  		// version of the libc
-@@ -3447,11 +3482,16 @@ function object_out_dir_option_handle()
+@@ -3447,11 +3484,16 @@ function object_out_dir_option_handle()
  	} else {
  		PHP_OBJECT_OUT_DIR = FSO.GetAbsolutePathName(".") + '\\';
  
@@ -856,7 +876,7 @@ index bf88cdae..267cfa1d 100644
  		}
  	}
  }
-@@ -3508,7 +3548,7 @@ function php_build_option_handle()
+@@ -3508,7 +3550,7 @@ function php_build_option_handle()
  			if (FSO.FolderExists("..\\php_build")) {
  				PHP_PHP_BUILD = "..\\php_build";
  			} else {
@@ -865,7 +885,7 @@ index bf88cdae..267cfa1d 100644
  					if (FSO.FolderExists("..\\win64build")) {
  						PHP_PHP_BUILD = "..\\win64build";
  					} else if (FSO.FolderExists("..\\php-win64-dev\\php_build")) {
-@@ -3670,7 +3710,7 @@ function get_clang_lib_dir()
+@@ -3670,7 +3712,7 @@ function get_clang_lib_dir()
  		ERROR("Failed to determine clang lib path");
  	}
  
@@ -874,7 +894,7 @@ index bf88cdae..267cfa1d 100644
  		ret = PROGRAM_FILES + "\\LLVM\\lib\\clang\\" + ver + "\\lib";
  		if (!FSO.FolderExists(ret)) {
  			ret = null;
-@@ -3707,10 +3747,13 @@ function add_asan_opts(cflags_name, libs_name, ldflags_name)
+@@ -3707,10 +3749,13 @@ function add_asan_opts(cflags_name, libs_name, ldflags_name)
  		ADD_FLAG(cflags_name, "-fsanitize=address,undefined");
  	}
  	if (!!libs_name) {
