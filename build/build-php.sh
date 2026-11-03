@@ -161,29 +161,42 @@ case "${PHP_LINE}" in
 esac
 
 # --- spc ------------------------------------------------------------------
-# Pinned to v2: the v3 alphas ship broken source-URL resolvers for libiconv and
-# php-src, which fail late and look like network problems.
+# Pinned, by version and sha256. v2, because the v3 alphas ship broken
+# source-URL resolvers for libiconv and php-src, which fail late and look like
+# network problems. 2.8.6 is v2's nightly, which every workaround here was
+# made against and which has no release of its own: the nightly URL is
+# overwritten in place, so the exact binaries are mirrored to this repo's
+# `tools` release, and a new one is adopted by uploading it there and
+# changing these lines. That also makes the spc in a build part of what
+# build/plan.py fingerprints, so changing it rebuilds what it builds.
+SPC_VERSION="2.8.6"
+SPC_BASE="${PV_SPC_BASE:-https://github.com/adrum/pv/releases/download/tools}"
 case "${PLATFORM}" in
-    darwin-arm64)  SPC_ASSET="spc-macos-aarch64" ;;
-    darwin-x86_64) SPC_ASSET="spc-macos-x86_64" ;;
-    linux-arm64)   SPC_ASSET="spc-linux-aarch64" ;;
-    linux-x86_64)  SPC_ASSET="spc-linux-x86_64" ;;
+    darwin-arm64)  SPC_ASSET="macos-aarch64"; SPC_SHA256="9eba2e6e0d1aebabd6ff8efc6711dd0bad335ba41e29ce36e06ea5a6c5d57731" ;;
+    darwin-x86_64) SPC_ASSET="macos-x86_64";  SPC_SHA256="07ff81f18cbb34f24ca2ba95f5c0554d407b9fd782dd9081b25b1250160ab0f5" ;;
+    linux-arm64)   SPC_ASSET="linux-aarch64"; SPC_SHA256="26f483093b97da2925e4e993036c59509eab28656346b505d2d0a11271faae99" ;;
+    linux-x86_64)  SPC_ASSET="linux-x86_64";  SPC_SHA256="c138f3e4a68479597e11ca14d5209346c54758ccd09005e7a6a6f1e63b7f9f71" ;;
     *) echo "error: unsupported platform ${PLATFORM}" >&2; exit 1 ;;
 esac
-SPC_URL="https://dl.static-php.dev/static-php-cli/spc-bin/nightly/${SPC_ASSET}"
+SPC_URL="${SPC_BASE}/spc-${SPC_VERSION}-${SPC_ASSET}"
 
 _maybe_sudo() { if [[ "$(id -u)" -eq 0 ]]; then "$@"; else sudo "$@"; fi; }
 install_spc() {
+    local tmp
+    tmp="$(mktemp)"
+    curl -fsSL --retry 3 -o "${tmp}" "${SPC_URL}" || { echo "error: could not download ${SPC_URL}" >&2; exit 1; }
+    local actual
+    actual="$(shasum -a 256 "${tmp}" | awk '{print $1}')"
+    if [[ "${actual}" != "${SPC_SHA256}" ]]; then
+        echo "error: ${SPC_URL} does not match its pinned sha256 (got ${actual})" >&2
+        exit 1
+    fi
     _maybe_sudo mkdir -p /usr/local/bin
-    curl -fsSL -o /tmp/spc "${SPC_URL}"
-    _maybe_sudo install -m 0755 /tmp/spc /usr/local/bin/spc
-    rm -f /tmp/spc
+    _maybe_sudo install -m 0755 "${tmp}" /usr/local/bin/spc
+    rm -f "${tmp}"
 }
-if ! command -v spc >/dev/null 2>&1; then
-    echo ">>> installing spc"
-    install_spc
-elif spc --version 2>/dev/null | grep -qE '(^|[^0-9])3\.[0-9]'; then
-    echo ">>> spc v3 detected; rolling back to v2"
+if [[ "$(shasum -a 256 "$(command -v spc 2>/dev/null || echo /nonexistent)" 2>/dev/null | awk '{print $1}')" != "${SPC_SHA256}" ]]; then
+    echo ">>> installing spc ${SPC_VERSION}"
     install_spc
 fi
 
