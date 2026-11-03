@@ -177,8 +177,17 @@ json.dump(config, open(path, "w"), indent=2)
     export PV_DEPS_PHP=""
     ARM64_PORT="${SCRIPT_DIR}/windows/arm64/php-${PHP_LINE}.patch"
     if [[ -f "${ARM64_PORT}" ]]; then
-        (cd "${WORK}/source/php-src" && git apply --whitespace=nowarn "${ARM64_PORT}") ||
-            fail "$(basename "${ARM64_PORT}") does not apply to PHP ${PHP_VERSION}"
+        # GIT_CEILING_DIRECTORIES: php-src sits inside this repository's
+        # checkout, and git apply in a repository's subdirectory takes paths
+        # from the repository root, skips everything outside the directory,
+        # and still succeeds. Keep git from finding the repository, and check
+        # the port is in place rather than trusting the exit status.
+        (
+            cd "${WORK}/source/php-src"
+            export GIT_CEILING_DIRECTORIES="${WORK}/source"
+            git apply --whitespace=nowarn "${ARM64_PORT}" &&
+                git apply --whitespace=nowarn --check -R "${ARM64_PORT}"
+        ) || fail "$(basename "${ARM64_PORT}") did not apply to PHP ${PHP_VERSION}"
         echo ">>> applied pv's arm64 port for PHP ${PHP_LINE}"
         PV_DEPS_PHP="8.2"
         # Take 8.2's set as published: deps-overrides.json pins older libraries
