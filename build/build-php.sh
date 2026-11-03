@@ -112,8 +112,10 @@ SHARED_EXTENSIONS="${PHP_SHARED_EXTENSIONS:-xdebug}"
 # needs a much heavier ngtcp2/nghttp3 lift for no benefit here.
 EXTRA_LIBS="${PHP_EXTRA_LIBS:-onig,libavif,nghttp2}"
 
-# Xdebug source override, for PHP lines the newest Xdebug dropped.
-XDEBUG_URL=""
+# Xdebug, pinned. Left to itself spc resolves the newest Xdebug tag, which was
+# a 3.6 alpha when 8.2-8.5 were found shipping it while Windows shipped
+# xdebug.org's stable 3.5.3. Lines the current series dropped pin older below.
+XDEBUG_URL="https://xdebug.org/files/xdebug-3.5.3.tgz"
 
 strip_ext() {
     EXTENSIONS="$(echo "${EXTENSIONS}" | tr ',' '\n' | grep -v "^$1$" | paste -sd, -)"
