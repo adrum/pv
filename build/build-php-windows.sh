@@ -264,14 +264,19 @@ PY
     echo ">>> verified Xdebug ${XDEBUG_VERSION} source; building it in-tree"
 
     # The PECL extensions x64 takes from PECL's Windows builds, compiled
-    # in-tree from the source releases pecl-source.lock pins. Their licenses
-    # and provenance go to the packaging step through PV_WINDOWS_PECL_DIR.
+    # in-tree from the source releases pecl-source.lock pins: for each, the
+    # release pecl.lock pins for this line on x64, and none where it pins
+    # none (mongodb 2.x needs 8.1). Their licenses and provenance go to the
+    # packaging step through PV_WINDOWS_PECL_DIR.
     PECL_META="${WORK}/pecl"
     mkdir -p "${PECL_META}/licenses"
     : > "${PECL_META}/sources.txt"
     PECL_CONFIGURE=""
     while IFS=$' \t\r' read -r s_ext s_version s_sha256; do
         [[ -z "${s_ext}" || "${s_ext}" == \#* ]] && continue
+        s_line_version="$(awk -v e="${s_ext}" -v l="${PHP_LINE}" \
+            '$1 == e && $3 == l && $5 == "x64" { print $2; exit }' "${SCRIPT_DIR}/windows/pecl.lock")"
+        [[ "${s_version}" == "${s_line_version}" ]] || continue
         s_tgz="${s_ext}-${s_version}.tgz"
         cached_download "https://pecl.php.net/get/${s_tgz}" "${WORK}/${s_tgz}" "${s_sha256}" ||
             fail "could not fetch ${s_tgz} matching build/windows/pecl-source.lock"

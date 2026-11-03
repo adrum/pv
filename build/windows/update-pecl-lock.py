@@ -51,7 +51,8 @@ SOURCE_LOCK = Path(__file__).with_name("pecl-source.lock")
 SOURCE_HEADER = """\
 # PECL source releases built in-tree into pv's Windows arm64 builds, for which
 # PECL publishes no Windows build, from https://pecl.php.net/get/, which
-# publishes no checksums. The same releases pecl.lock pins for x64:
+# publishes no checksums. The releases pecl.lock pins for x64, each line
+# building the one pinned for it there:
 #
 #   <extension> <version> <sha256 of the tarball>
 #
@@ -105,17 +106,18 @@ def main() -> int:
     LOCK.write_text(HEADER + "".join(f"{row}\n" for row in rows), newline="\n")
     print(f"wrote {LOCK}: {len(rows)} entries", file=sys.stderr)
 
-    # The newest release pinned for any line, for each extension built in-tree.
-    newest: dict[str, str] = {}
+    # Every release pinned for any line, for each extension built in-tree:
+    # an arm64 build takes the one its line's x64 entry names.
+    pinned: dict[str, set[str]] = {}
     for row in rows:
         extension, version = row.split()[:2]
-        if extension in SOURCE_EXTENSIONS and version_key(version) > version_key(newest.get(extension, "0")):
-            newest[extension] = version
+        if extension in SOURCE_EXTENSIONS:
+            pinned.setdefault(extension, set()).add(version)
     sources = []
     for extension in SOURCE_EXTENSIONS:
-        version = newest[extension]
-        digest = hashlib.sha256(fetch(f"{PECL_SOURCES}/{extension}-{version}.tgz")).hexdigest()
-        sources.append(f"{extension} {version} {digest}")
+        for version in sorted(pinned[extension], key=version_key, reverse=True):
+            digest = hashlib.sha256(fetch(f"{PECL_SOURCES}/{extension}-{version}.tgz")).hexdigest()
+            sources.append(f"{extension} {version} {digest}")
     SOURCE_LOCK.write_text(SOURCE_HEADER + "".join(f"{row}\n" for row in sources), newline="\n")
     print(f"wrote {SOURCE_LOCK}: {len(sources)} entries", file=sys.stderr)
     return 0
