@@ -150,6 +150,16 @@ if [[ "${ARCH}" == "arm64" ]]; then
         'if errorlevel 1 exit 2' 'nmake 2>&1' 'if errorlevel 1 exit 3' 'nmake snap 2>&1' 'if errorlevel 1 exit 10' \
         > "${BUILDER}/runner/task-nts.bat"
 
+    # NEON is arm64's baseline the way SSE2 is x64's, and php-src 8.2 and 8.3
+    # name the snapshot zip without a SIMD suffix for either. 8.4 and later
+    # lost the NEON half, so the zip comes out as ...-arm64-NEON.zip, which
+    # php-sdk's compliance step refuses as an unsupported archive name.
+    # Restore 8.2's line; where it is already there this changes nothing.
+    sed -i 's/^!if "\$(PHP_SIMD_SCALE)" == "SSE2"\r\?$/!if "$(PHP_SIMD_SCALE)" == "SSE2" || "$(PHP_SIMD_SCALE)" == "NEON"/' \
+        "${WORK}/source/php-src/win32/build/Makefile"
+    grep -q '"$(PHP_SIMD_SCALE)" == "NEON"' "${WORK}/source/php-src/win32/build/Makefile" ||
+        fail "could not stop the arm64 snapshot being named -NEON"
+
     # The newest Xdebug that xdebug.org itself builds for this line, from source.
     curl -fsSL --retry 3 -o "${WORK}/xdebug.html" "${XDEBUG_INDEX}" || fail "could not fetch ${XDEBUG_INDEX}"
     "${PYTHON}" -I - "$(cygpath -w "${WORK}/xdebug.html")" "${PHP_LINE}" > "${WORK}/xdebug.txt" <<'PY' ||
