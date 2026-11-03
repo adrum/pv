@@ -181,17 +181,20 @@ json.dump(config, open(path, "w"), indent=2)
     grep -q '"$(PHP_SIMD_SCALE)" == "NEON"' "${WORK}/source/php-src/win32/build/Makefile" ||
         fail "could not stop the arm64 snapshot being named -NEON"
 
-    # bcmath's xsse.h emulates SSE with NEON for arm64, MSVC included, but
-    # passes braced initializers containing commas into vreinterpretq_*(),
-    # which MSVC's arm_neon.h defines as macros: 8.5 fails with "too many
-    # arguments for function-like macro invocation". Keep that emulation to
-    # GCC and Clang, which leaves MSVC arm64 on bcmath's scalar code, as any
-    # target without SIMD is. Lines without the header are untouched.
-    XSSE="${WORK}/source/php-src/ext/bcmath/libbcmath/src/xsse.h"
-    if [[ -f "${XSSE}" ]] && grep -q 'defined(__aarch64__) || defined(_M_ARM64)' "${XSSE}"; then
-        sed -i 's/defined(__aarch64__) || defined(_M_ARM64)/defined(__aarch64__)/g' "${XSSE}"
-        echo ">>> limited bcmath's NEON emulation to GCC and Clang"
-    fi
+    # 8.5's SSE-on-NEON emulation (Zend/zend_simd.h, and bcmath's xsse.h it
+    # grew from) covers MSVC arm64 too, but passes braced initializers
+    # containing commas into vreinterpretq_*(), which MSVC's arm_neon.h
+    # defines as macros: "too many arguments for function-like macro
+    # invocation". Keep that emulation to GCC and Clang. MSVC arm64 then
+    # defines no XSSE2 and takes the scalar code every caller already has
+    # for targets without SIMD. Lines without the headers are untouched.
+    for header in Zend/zend_simd.h ext/bcmath/libbcmath/src/xsse.h; do
+        header="${WORK}/source/php-src/${header}"
+        if [[ -f "${header}" ]] && grep -q 'defined(__aarch64__) || defined(_M_ARM64)' "${header}"; then
+            sed -i 's/defined(__aarch64__) || defined(_M_ARM64)/defined(__aarch64__)/g' "${header}"
+            echo ">>> limited $(basename "${header}")'s NEON emulation to GCC and Clang"
+        fi
+    done
 
     # The newest Xdebug that xdebug.org itself builds for this line, from source.
     curl -fsSL --retry 3 -o "${WORK}/xdebug.html" "${XDEBUG_INDEX}" || fail "could not fetch ${XDEBUG_INDEX}"
