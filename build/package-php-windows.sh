@@ -48,6 +48,8 @@ DOWNLOADS="${PV_WINDOWS_DOWNLOADS:-https://windows.php.net/downloads/releases}"
 # Every Windows Xdebug build ever published, each with its SHA256 beside it.
 XDEBUG_INDEX="${PV_XDEBUG_INDEX:-https://xdebug.org/download/historical}"
 XDEBUG_FILES="${PV_XDEBUG_FILES:-https://xdebug.org/files}"
+# php.net's PECL Windows builds, pinned by sha256 in build/windows/pecl.lock.
+PECL_FILES="${PV_PECL_FILES:-https://downloads.php.net/~windows/pecl/releases}"
 
 # The same placeholder the other platforms ship; `pv install` substitutes the
 # directory the tree actually landed in.
@@ -255,6 +257,59 @@ ${XDEBUG_FILES}/${XDEBUG_FILE}
 sha256 ${XDEBUG_SHA256}"
 fi
 
+# --- PECL extensions --------------------------------------------------------
+# php.net's build carries only php-src's own extensions; the other platforms
+# also build these PECL ones. php.net publishes Windows builds of them, per
+# line and compiler but without checksums, so build/windows/pecl.lock pins
+# one and anything else is refused. A zip built from source may already
+# carry them, built in-tree; either way, whichever DLLs are present get
+# enabled, in an order that loads redis's serializers before redis.
+case "${PLATFORM}" in
+    windows-x86_64) ARCH="x64" ;;
+    windows-arm64)  ARCH="arm64" ;;
+esac
+PECL_ORDER="apcu igbinary msgpack redis mongodb yaml ssh2 imagick"
+PECL_ORIGIN=""
+while IFS=$' \t\r' read -r p_ext p_version p_line p_compiler p_arch p_sha256; do
+    [[ -z "${p_ext}" || "${p_ext}" == \#* ]] && continue
+    [[ "${p_line}" == "${PHP_LINE}" && "${p_compiler}" == "${COMPILER}" && "${p_arch}" == "${ARCH}" ]] || continue
+    p_zip="php_${p_ext}-${p_version}-${p_line}-nts-${p_compiler}-${p_arch}.zip"
+    curl -fsSL --retry 3 -o "${STAGE_DIR}/${p_zip}" "${PECL_FILES}/${p_ext}/${p_version}/${p_zip}" ||
+        fail "could not download ${p_zip}"
+    actual="$(sha256_of "${STAGE_DIR}/${p_zip}")"
+    [[ "${actual}" == "${p_sha256}" ]] ||
+        fail "${p_zip} does not match build/windows/pecl.lock (expected ${p_sha256}, got ${actual})"
+    mkdir -p "${STAGE_DIR}/pecl-${p_ext}"
+    unzip -q -o "${STAGE_DIR}/${p_zip}" -d "${STAGE_DIR}/pecl-${p_ext}"
+    [[ -f "${STAGE_DIR}/pecl-${p_ext}/php_${p_ext}.dll" ]] || fail "${p_zip} has no php_${p_ext}.dll"
+    cp "${STAGE_DIR}/pecl-${p_ext}/php_${p_ext}.dll" "${TREE}/bin/ext/"
+    # Only the extension, except for imagick: ImageMagick's own DLLs, coder
+    # modules and config go beside php.exe, where Windows and ImageMagick look
+    # for them. Nothing php.net ships is ever overwritten — yaml's zip, for
+    # one, carries a libxml2.dll php_yaml.dll does not even import.
+    if [[ "${p_ext}" == "imagick" ]]; then
+        for f in "${STAGE_DIR}/pecl-${p_ext}"/{CORE_RL_,IM_MOD_RL_,FILTER_}*.dll "${STAGE_DIR}/pecl-${p_ext}"/config/*.xml; do
+            [[ -f "${f}" && ! -e "${TREE}/bin/$(basename "${f}")" ]] && cp "${f}" "${TREE}/bin/"
+        done
+    fi
+    p_licenses=0
+    for f in "${STAGE_DIR}/pecl-${p_ext}"/{LICENSE,COPYING}*; do
+        [[ -f "${f}" ]] || continue
+        p_name="$(basename "${f}")"
+        cp "${f}" "${TREE}/licenses/${p_ext}-${p_name%.txt}.txt"
+        p_licenses=$((p_licenses + 1))
+    done
+    [[ "${p_licenses}" -gt 0 ]] ||
+        fail "${p_zip} carries no license — refusing to ship it without one"
+    PECL_ORIGIN+="
+${p_ext} ${p_version}: ${PECL_FILES}/${p_ext}/${p_version}/${p_zip}
+  sha256 ${p_sha256}"
+    echo ">>> verified ${p_zip}"
+done < "${SCRIPT_DIR}/windows/pecl.lock"
+for ext in ${PECL_ORDER}; do
+    [[ -f "${TREE}/bin/ext/php_${ext}.dll" ]] && ENABLED+=("${ext}")
+done
+
 cat > "${TREE}/etc/conf.d/.keep" <<'EOF'
 ; Drop .ini files here to enable extensions.
 ; pv points PHP_INI_SCAN_DIR at this directory.
@@ -310,6 +365,13 @@ else
 ${DOWNLOADS}/${ZIP_NAME}
 sha256 ${ZIP_SHA256}"
 fi
+PECL_SECTION=""
+if [[ -n "${PECL_ORIGIN}" ]]; then
+    PECL_SECTION="
+And these PECL extensions in bin/ext/, php.net's own Windows builds, unmodified
+(their licenses are beside this file):${PECL_ORIGIN}
+"
+fi
 cat > "${TREE}/licenses/README.txt" <<EOF
 PHP ${PHP_VERSION} for ${PLATFORM}.
 
@@ -318,7 +380,7 @@ ${ORIGIN}
 Added to it: etc/, this directory, and bin/ext/php_xdebug.dll —
 ${XDEBUG_ORIGIN}
 Xdebug is distributed under the Xdebug License (xdebug-LICENSE.txt).
-
+${PECL_SECTION}
 The build needs the Microsoft Visual C++ Redistributable, as every official
 PHP for Windows does.
 EOF
