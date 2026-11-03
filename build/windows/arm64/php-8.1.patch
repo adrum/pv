@@ -19,6 +19,9 @@ Ported from these php-src commits:
   2be3aa86f0  gd's emmintrin.h on Windows arm64; its zend_vm_execute hunks
               do not apply, 8.1 having no execute_ex_real trampoline
   e2da6b4bf9  Use the default archive names for Windows ARM64 builds
+  ca011bbf56  Drop unsupported libxml2 2.10.0 symbols (the docb* exports);
+              needed because these lines link 8.2's arm64 libxml2 2.11.
+              UPGRADING.INTERNALS dropped
 
 diff --git a/Zend/asm/jump_arm64_aapcs_pe_armasm.asm b/Zend/asm/jump_arm64_aapcs_pe_armasm.asm
 new file mode 100644
@@ -455,6 +458,86 @@ index f3523ed3..1abda489 100644
  {
  	return !zend_isinf(d) && !zend_isnan(d);
  }
+diff --git a/ext/libxml/php_libxml2.def b/ext/libxml/php_libxml2.def
+index f4be787c..5980df8b 100644
+--- a/ext/libxml/php_libxml2.def
++++ b/ext/libxml/php_libxml2.def
+@@ -1,5 +1,4 @@
+ EXPORTS
+-__docbDefaultSAXHandler
+ __htmlDefaultSAXHandler
+ __oldXMLWDcompatibility
+ __xmlBufferAllocScheme
+@@ -53,17 +52,6 @@ cdataBlock
+ characters
+ checkNamespace
+ comment
+-docbCreateFileParserCtxt
+-docbCreatePushParserCtxt
+-docbDefaultSAXHandlerInit
+-docbEncodeEntities
+-docbFreeParserCtxt
+-docbParseChunk
+-docbParseDoc
+-docbParseDocument
+-docbParseFile
+-docbSAXParseDoc
+-docbSAXParseFile
+ elementDecl
+ endDocument
+ endElement
+@@ -137,7 +125,6 @@ htmlSetMetaEncoding
+ htmlTagLookup
+ ignorableWhitespace
+ initGenericErrorDefaultFunc
+-initdocbDefaultSAXHandler
+ inithtmlDefaultSAXHandler
+ initxmlDefaultSAXHandler
+ inputPop
+@@ -801,7 +788,6 @@ xmlRegisterHTTPPostCallbacks
+ xmlRegisterInputCallbacks
+ xmlRegisterNodeDefault
+ xmlRegisterOutputCallbacks
+-xmlRelaxNGCleanupTypes
+ xmlRelaxNGDump
+ xmlRelaxNGDumpTree
+ xmlRelaxNGFree
+@@ -849,7 +835,6 @@ xmlSAX2HasExternalSubset
+ xmlSAX2HasInternalSubset
+ xmlSAX2IgnorableWhitespace
+ xmlSAX2InitDefaultSAXHandler
+-xmlSAX2InitDocbDefaultSAXHandler
+ xmlSAX2InitHtmlDefaultSAXHandler
+ xmlSAX2InternalSubset
+ xmlSAX2IsStandalone
+@@ -1523,27 +1508,8 @@ xmlXPathWrapExternal
+ xmlXPathWrapNodeSet
+ xmlXPathWrapString
+ xmlXPatherror
+-xmlXPtrBuildNodeList
+ xmlXPtrEval
+-xmlXPtrEvalRangePredicate
+-xmlXPtrFreeLocationSet
+-xmlXPtrLocationSetAdd
+-xmlXPtrLocationSetCreate
+-xmlXPtrLocationSetDel
+-xmlXPtrLocationSetMerge
+-xmlXPtrLocationSetRemove
+-xmlXPtrNewCollapsedRange
+ xmlXPtrNewContext
+-xmlXPtrNewLocationSetNodeSet
+-xmlXPtrNewLocationSetNodes
+-xmlXPtrNewRange
+-xmlXPtrNewRangeNodeObject
+-xmlXPtrNewRangeNodePoint
+-xmlXPtrNewRangeNodes
+-xmlXPtrNewRangePointNode
+-xmlXPtrNewRangePoints
+-xmlXPtrRangeToFunction
+-xmlXPtrWrapLocationSet
+ xmlBufContent
+ xmlBufUse
+ xmlBufferDetach
 diff --git a/ext/opcache/ZendAccelerator.c b/ext/opcache/ZendAccelerator.c
 index e030b441..3543e318 100644
 --- a/ext/opcache/ZendAccelerator.c
