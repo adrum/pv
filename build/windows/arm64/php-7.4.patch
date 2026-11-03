@@ -3,6 +3,12 @@ in 8.2, ported to 7.4.33 as pv builds it (after build/backports/php-7.4.list).
 Applied by build/build-php-windows.sh with `git apply` before building.
 
 Ported from these php-src commits:
+  180557dd9c  Do not assert SSE/AVX resolvers at windows arm64
+              (7.4 has no PCLMUL resolvers, so those two hunks drop)
+  745cf34ffc  Port standard/crc32 for windows arm64; NEWS and UPGRADING
+              dropped. Windows defines no HAVE_AARCH64_CRC32, so this is
+              inert there, as it is in 8.2
+              (7.4: only the arm_acle.h guard, adapted to 7.4's #if)
   02881a76a8  Port win32/codepage.c codes for windows arm64
   279a297172  Windows arm64 build system support; its fiber assembly, fiber
               build block and ASM_OBJS link inputs dropped (no fibers before
@@ -10,9 +16,9 @@ Ported from these php-src commits:
               file), and 7.4's toolset_setup_arch, debug flags and clang lib
               path adapted by hand
   3a843f953b  Windows arm64 zend and standard extension support; the
-              Zend/zend_atomic.h hunk dropped (no zend_atomic in 7.4), the
+              Zend/zend_atomic.h hunk dropped (no zend_atomic before 8.2), the
               json_encoder.c MSVC workaround adapted to 7.4's int return,
-              and string.c's and base64.c's NEON guards adapted by hand
+              and the string.c and base64.c NEON guards adapted by hand
   2be3aa86f0  gd's emmintrin.h on Windows arm64; its zend_vm_execute hunks
               do not apply, 7.4 having no execute_ex_real trampoline
   e2da6b4bf9  Use the default archive names for Windows ARM64 builds
@@ -117,6 +123,37 @@ index a9bbda55..4aa7275f 100644
  # else
  #  define ZEND_SIGNED_MULTIPLY_LONG(a, b, lval, dval, usedval) do {	\
  	zend_long   __lres  = (a) * (b);										\
+diff --git a/Zend/zend_portability.h b/Zend/zend_portability.h
+index 58c42a28..f9c8b8df 100644
+--- a/Zend/zend_portability.h
++++ b/Zend/zend_portability.h
+@@ -553,7 +553,7 @@ static zend_always_inline double _zend_get_nan(void) /* {{{ */
+ #ifdef __SSSE3__
+ /* Instructions compiled directly. */
+ # define ZEND_INTRIN_SSSE3_NATIVE 1
+-#elif (defined(HAVE_FUNC_ATTRIBUTE_TARGET) && defined(PHP_HAVE_SSSE3)) || defined(ZEND_WIN32)
++#elif (defined(HAVE_FUNC_ATTRIBUTE_TARGET) && defined(PHP_HAVE_SSSE3)) || (defined(ZEND_WIN32) && (!defined(_M_ARM64)))
+ /* Function resolved by ifunc or MINIT. */
+ # define ZEND_INTRIN_SSSE3_RESOLVER 1
+ #endif
+@@ -578,7 +578,7 @@ static zend_always_inline double _zend_get_nan(void) /* {{{ */
+ #ifdef __SSE4_2__
+ /* Instructions compiled directly. */
+ # define ZEND_INTRIN_SSE4_2_NATIVE 1
+-#elif (defined(HAVE_FUNC_ATTRIBUTE_TARGET) && defined(PHP_HAVE_SSE4_2)) || defined(ZEND_WIN32)
++#elif (defined(HAVE_FUNC_ATTRIBUTE_TARGET) && defined(PHP_HAVE_SSE4_2)) || (defined(ZEND_WIN32) && (!defined(_M_ARM64)))
+ /* Function resolved by ifunc or MINIT. */
+ # define ZEND_INTRIN_SSE4_2_RESOLVER 1
+ #endif
+@@ -602,7 +602,7 @@ static zend_always_inline double _zend_get_nan(void) /* {{{ */
+ 
+ #ifdef __AVX2__
+ # define ZEND_INTRIN_AVX2_NATIVE 1
+-#elif (defined(HAVE_FUNC_ATTRIBUTE_TARGET) && defined(PHP_HAVE_AVX2)) || defined(ZEND_WIN32)
++#elif (defined(HAVE_FUNC_ATTRIBUTE_TARGET) && defined(PHP_HAVE_AVX2)) || (defined(ZEND_WIN32) && (!defined(_M_ARM64)))
+ # define ZEND_INTRIN_AVX2_RESOLVER 1
+ #endif
+ 
 diff --git a/ext/gd/libgd/gd_interpolation.c b/ext/gd/libgd/gd_interpolation.c
 index 5247ad40..f0ddb150 100644
 --- a/ext/gd/libgd/gd_interpolation.c
@@ -216,6 +253,36 @@ index 0dd40458..e9e5b14e 100644
  	if (inl >= 16 * 4) {
  		size_t left = 0;
  		j += neon_base64_decode(in, inl, out, &left);
+diff --git a/ext/standard/crc32.c b/ext/standard/crc32.c
+index 497b1336..b2adae4c 100644
+--- a/ext/standard/crc32.c
++++ b/ext/standard/crc32.c
+@@ -21,7 +21,9 @@
+ #include "crc32.h"
+ 
+ #if HAVE_AARCH64_CRC32
++#ifndef PHP_WIN32
+ # include <arm_acle.h>
++#endif
+ # if defined(__linux__)
+ #  include <sys/auxv.h>
+ #  include <asm/hwcap.h>
+diff --git a/ext/standard/info.c b/ext/standard/info.c
+index 120d442b..7367c936 100644
+--- a/ext/standard/info.c
++++ b/ext/standard/info.c
+@@ -628,6 +628,11 @@ void php_get_windows_cpu(char *buf, int bufsize)
+ 		case PROCESSOR_ARCHITECTURE_AMD64 :
+ 			snprintf(buf, bufsize, "AMD64");
+ 			break;
++#endif
++#if defined(PROCESSOR_ARCHITECTURE_ARM64)
++		case PROCESSOR_ARCHITECTURE_ARM64 :
++			snprintf(buf, bufsize, "ARM64");
++			break;
+ #endif
+ 		case PROCESSOR_ARCHITECTURE_UNKNOWN :
+ 		default:
 diff --git a/ext/standard/string.c b/ext/standard/string.c
 index 0c953618..06789f02 100644
 --- a/ext/standard/string.c
