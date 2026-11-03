@@ -170,6 +170,21 @@ json.dump(config, open(path, "w"), indent=2)
         grep -q 'PV_DEPS_VS' "${BUILDER}/private/Add-PhpDeps.ps1" ||
             fail "could not point php-windows-builder at the vs16 arm64 dependencies"
     fi
+    # php-src's Windows build system learned arm64 in 8.2. Earlier lines carry
+    # pv's port of that support, build/windows/arm64/php-<line>.patch, and
+    # take 8.2's arm64 dependency set, php.net publishing none for them.
+    export PV_DEPS_PHP=""
+    ARM64_PORT="${SCRIPT_DIR}/windows/arm64/php-${PHP_LINE}.patch"
+    if [[ -f "${ARM64_PORT}" ]]; then
+        (cd "${WORK}/source/php-src" && git apply --whitespace=nowarn "${ARM64_PORT}") ||
+            fail "$(basename "${ARM64_PORT}") does not apply to PHP ${PHP_VERSION}"
+        echo ">>> applied pv's arm64 port for PHP ${PHP_LINE}"
+        PV_DEPS_PHP="8.2"
+        sed -i 's/^\(\s*\)\$seriesUrl = /\1if ($env:PV_DEPS_PHP) { $depsPhpVersion = $env:PV_DEPS_PHP }\n\1$seriesUrl = /' \
+            "${BUILDER}/private/Get-PhpDepsPackages.ps1"
+        grep -q 'PV_DEPS_PHP' "${BUILDER}/private/Get-PhpDepsPackages.ps1" ||
+            fail "could not point php-windows-builder at 8.2's arm64 dependencies"
+    fi
     # Fifteen functions validate the architecture, each written out by hand,
     # and every one of them sits on some path through the build.
     find "${BUILDER}" -name '*.ps1' -exec \

@@ -61,10 +61,22 @@ RUNNERS = {
     "windows-arm64": "windows-11-arm",
 }
 
-# Lines a platform cannot build yet. php-src's Windows build system knows
-# arm64 from 8.2; earlier lines wait for that support to be backported, and
-# Windows on Arm runs their x64 builds under emulation meanwhile.
-UNSUPPORTED = {"windows-arm64": {"7.4", "8.0", "8.1"}}
+# php-src's Windows build system knows arm64 from 8.2. An earlier line builds
+# for windows-arm64 once pv carries a port of that support for it, in
+# build/windows/arm64/; until then Windows on Arm runs its x64 build under
+# emulation.
+WINDOWS_ARM64_NATIVE = (8, 2)
+
+
+def arm64_port(line: str) -> str | None:
+    path = f"build/windows/arm64/php-{line}.patch"
+    return path if (ROOT / path).exists() else None
+
+
+def buildable(line: str, platform: str) -> bool:
+    if platform != "windows-arm64":
+        return True
+    return tuple(map(int, line.split("."))) >= WINDOWS_ARM64_NATIVE or arm64_port(line) is not None
 
 # The files each kind of build reads. A change to one rebuilds only the
 # builds that read it.
@@ -187,6 +199,8 @@ def fingerprint(line: str, platform: str, upstream: Upstream) -> tuple[str, str]
     if platform.startswith("windows-"):
         compiled = compiled_on_windows(line, platform)
         files = WINDOWS_SOURCE_FILES if compiled else WINDOWS_PACKAGE_FILES
+        if platform == "windows-arm64" and arm64_port(line):
+            files = files + [arm64_port(line)]
         inputs["xdebug"] = upstream.xdebug(line)
         if compiled:
             version = upstream.version(line)
@@ -241,7 +255,7 @@ def main() -> int:
     include = []
     for platform in platforms:
         for line in lines:
-            if line in UNSUPPORTED.get(platform, ()):
+            if not buildable(line, platform):
                 print(f"skip  {line} {platform}: not buildable yet", file=sys.stderr)
                 continue
             inputs, version = fingerprint(line, platform, upstream)
