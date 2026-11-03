@@ -120,7 +120,23 @@ git -C "${WORK}/php-windows-builder" checkout --quiet "${BUILDER_COMMIT}"
 BUILDER="${WORK}/php-windows-builder/php/BuildPhp"
 cp "${SCRIPT_DIR}/windows/Get-PhpSrc.ps1" "${BUILDER}/private/Get-PhpSrc.ps1"
 
+# Unpack <archive>'s top directory <prefix>/ into <dest>, as an extension
+# source tree under php-src/ext/.
+extract_into() {
+    mkdir -p "$2"
+    "${PYTHON}" -I -c '
+import sys, tarfile
+with tarfile.open(sys.argv[1]) as archive:
+    prefix = sys.argv[3] + "/"
+    members = [m for m in archive.getmembers() if m.name.startswith(prefix)]
+    for m in members:
+        m.name = m.name[len(prefix):]
+    archive.extractall(sys.argv[2], members=[m for m in members if m.name], filter="data")
+' "$(cygpath -w "$1")" "$(cygpath -w "$2")" "$3"
+}
+
 XDEBUG_VERSION=""
+PECL_META=""
 if [[ "${ARCH}" == "arm64" ]]; then
     # The builder knows only x86 and x64, though php-sdk, php-src's
     # configure.js and php.net's dependency mirror all support arm64. Teach it
@@ -128,7 +144,8 @@ if [[ "${ARCH}" == "arm64" ]]; then
     #   - accept the architecture;
     #   - skip the Oracle SDK, which Oracle publishes for x86 and x64 only;
     #   - configure without PGO, whose training scenarios run x64 servers;
-    #   - build Xdebug in-tree, since xdebug.org publishes no arm64 DLL.
+    #   - build Xdebug and the PECL extensions in-tree, since neither
+    #     xdebug.org nor PECL publishes an arm64 Windows build.
     VS="$("${PYTHON}" -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["php"][sys.argv[2]])' \
         "$(cygpath -w "${BUILDER}/config/vs.json")" "${PHP_LINE}" | tr -d '\r')"
     [[ -n "${VS}" ]] || fail "php-windows-builder has no toolset for PHP ${PHP_LINE}"
@@ -164,9 +181,6 @@ json.dump(config, open(path, "w"), indent=2)
         "${BUILDER}/private/Add-BuildRequirements.ps1"
     grep -q "arm64" "${BUILDER}/private/Add-BuildRequirements.ps1" ||
         fail "could not skip the Oracle SDK for arm64"
-    mkdir -p "${BUILDER}/config/${VS}/arm64"
-    printf '%s\r\n' 'cscript /nologo configure.js "--enable-snapshot-build" "--enable-debug-pack" "--disable-zts" "--enable-object-out-dir=../obj/" "--enable-com-dotnet=shared" "--without-analyzer" "--with-xdebug=shared" %*' \
-        > "${BUILDER}/config/${VS}/arm64/config.nts.bat"
     printf '%s\r\n' 'call buildconf.bat 2>&1' 'if errorlevel 1 exit 1' 'call config.nts.bat 2>&1' \
         'if errorlevel 1 exit 2' 'nmake 2>&1' 'if errorlevel 1 exit 3' 'nmake snap 2>&1' 'if errorlevel 1 exit 10' \
         > "${BUILDER}/runner/task-nts.bat"
@@ -217,18 +231,46 @@ PY
     IFS=$' \t\r' read -r XDEBUG_VERSION XDEBUG_SHA256 < "${WORK}/xdebug.txt"
     cached_download "${XDEBUG_FILES}/xdebug-${XDEBUG_VERSION}.tgz" "${WORK}/xdebug-${XDEBUG_VERSION}.tgz" \
         "${XDEBUG_SHA256}" || fail "could not fetch a verified Xdebug ${XDEBUG_VERSION}"
-    mkdir -p "${WORK}/source/php-src/ext/xdebug"
-    "${PYTHON}" -I -c '
-import sys, tarfile
-with tarfile.open(sys.argv[1]) as archive:
-    prefix = sys.argv[3] + "/"
-    members = [m for m in archive.getmembers() if m.name.startswith(prefix)]
-    for m in members:
-        m.name = m.name[len(prefix):]
-    archive.extractall(sys.argv[2], members=[m for m in members if m.name], filter="data")
-' "$(cygpath -w "${WORK}/xdebug-${XDEBUG_VERSION}.tgz")" "$(cygpath -w "${WORK}/source/php-src/ext/xdebug")" "xdebug-${XDEBUG_VERSION}"
+    extract_into "${WORK}/xdebug-${XDEBUG_VERSION}.tgz" "${WORK}/source/php-src/ext/xdebug" "xdebug-${XDEBUG_VERSION}"
     [[ -f "${WORK}/source/php-src/ext/xdebug/config.w32" ]] || fail "Xdebug ${XDEBUG_VERSION} has no config.w32"
     echo ">>> verified Xdebug ${XDEBUG_VERSION} source; building it in-tree"
+
+    # The PECL extensions x64 takes from PECL's Windows builds, compiled
+    # in-tree from the source releases pecl-source.lock pins. Their licenses
+    # and provenance go to the packaging step through PV_WINDOWS_PECL_DIR.
+    PECL_META="${WORK}/pecl"
+    mkdir -p "${PECL_META}/licenses"
+    : > "${PECL_META}/sources.txt"
+    PECL_CONFIGURE=""
+    while IFS=$' \t\r' read -r s_ext s_version s_sha256; do
+        [[ -z "${s_ext}" || "${s_ext}" == \#* ]] && continue
+        s_tgz="${s_ext}-${s_version}.tgz"
+        cached_download "https://pecl.php.net/get/${s_tgz}" "${WORK}/${s_tgz}" "${s_sha256}" ||
+            fail "could not fetch ${s_tgz} matching build/windows/pecl-source.lock"
+        extract_into "${WORK}/${s_tgz}" "${WORK}/source/php-src/ext/${s_ext}" "${s_ext}-${s_version}"
+        [[ -f "${WORK}/source/php-src/ext/${s_ext}/config.w32" ]] || fail "${s_tgz} has no config.w32"
+        case "${s_ext}" in
+            ssh2)  PECL_CONFIGURE+=' "--with-ssh2=shared"' ;;
+            # The serializer redis can use, built just before it.
+            redis) PECL_CONFIGURE+=' "--enable-redis=shared" "--enable-redis-igbinary"' ;;
+            *)     PECL_CONFIGURE+=" \"--enable-${s_ext}=shared\"" ;;
+        esac
+        s_licenses=0
+        for f in "${WORK}/source/php-src/ext/${s_ext}"/{LICENSE,COPYING}*; do
+            [[ -f "${f}" ]] || continue
+            s_name="$(basename "${f}")"
+            cp "${f}" "${PECL_META}/licenses/${s_ext}-${s_name%.txt}.txt"
+            s_licenses=$((s_licenses + 1))
+        done
+        [[ "${s_licenses}" -gt 0 ]] || fail "${s_tgz} carries no license — refusing to ship it without one"
+        printf '%s %s: https://pecl.php.net/get/%s\n  sha256 %s\n' \
+            "${s_ext}" "${s_version}" "${s_tgz}" "${s_sha256}" >> "${PECL_META}/sources.txt"
+        echo ">>> verified ${s_tgz}; building it in-tree"
+    done < "${SCRIPT_DIR}/windows/pecl-source.lock"
+
+    mkdir -p "${BUILDER}/config/${VS}/arm64"
+    printf '%s\r\n' 'cscript /nologo configure.js "--enable-snapshot-build" "--enable-debug-pack" "--disable-zts" "--enable-object-out-dir=../obj/" "--enable-com-dotnet=shared" "--without-analyzer" "--with-xdebug=shared"'"${PECL_CONFIGURE}"' %*' \
+        > "${BUILDER}/config/${VS}/arm64/config.nts.bat"
 fi
 
 # --- Build ----------------------------------------------------------------
@@ -248,4 +290,5 @@ zips=("${WORK}"/artifacts/php-"${PHP_VERSION}"-nts-Win32-v*-"${ARCH}".zip)
 
 # --- Package --------------------------------------------------------------
 PV_WINDOWS_ZIP="${zips[0]}" PV_WINDOWS_BACKPORTS="${REVISION}" PV_WINDOWS_XDEBUG_VERSION="${XDEBUG_VERSION}" \
+    PV_WINDOWS_PECL_DIR="${PECL_META}" \
     exec "${SCRIPT_DIR}/package-php-windows.sh" "${PHP_LINE}" "${PLATFORM}"

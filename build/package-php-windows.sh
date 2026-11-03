@@ -299,6 +299,20 @@ ${p_ext} ${p_version}: ${PECL_FILES}/${p_ext}/${p_version}/${p_zip}
   sha256 ${p_sha256}"
     echo ">>> verified ${p_zip}"
 done < "${SCRIPT_DIR}/windows/pecl.lock"
+# Built in-tree by build-php-windows.sh, where PECL has no Windows build
+# (arm64): its licenses, its provenance, and proof each one was built, since
+# a configure that quietly left one out would otherwise ship without it.
+INTREE_ORIGIN=""
+if [[ -n "${PV_WINDOWS_PECL_DIR:-}" && -f "${PV_WINDOWS_PECL_DIR}/sources.txt" ]]; then
+    # Lines read "<extension> <version>: <url>", then an indented sha256.
+    while read -r s_ext s_version _; do
+        [[ "${s_version}" == *: ]] || continue
+        [[ -f "${TREE}/bin/ext/php_${s_ext}.dll" ]] ||
+            fail "${s_ext} was built in-tree but ${ZIP_NAME} has no php_${s_ext}.dll"
+    done < "${PV_WINDOWS_PECL_DIR}/sources.txt"
+    cp "${PV_WINDOWS_PECL_DIR}"/licenses/* "${TREE}/licenses/"
+    INTREE_ORIGIN="$(cat "${PV_WINDOWS_PECL_DIR}/sources.txt")"
+fi
 for ext in ${PECL_ORDER}; do
     [[ -f "${TREE}/bin/ext/php_${ext}.dll" ]] && ENABLED+=("${ext}")
 done
@@ -363,6 +377,13 @@ if [[ -n "${PECL_ORIGIN}" ]]; then
     PECL_SECTION="
 And these PECL extensions in bin/ext/, php.net's own Windows builds, unmodified
 (their licenses are beside this file):${PECL_ORIGIN}
+"
+fi
+if [[ -n "${INTREE_ORIGIN}" ]]; then
+    PECL_SECTION+="
+And these PECL extensions in bin/ext/, built with PHP from PECL's source
+releases (their licenses are beside this file):
+${INTREE_ORIGIN}
 "
 fi
 cat > "${TREE}/licenses/README.txt" <<EOF

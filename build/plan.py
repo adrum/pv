@@ -79,12 +79,15 @@ UNIX_FILES = [
 WINDOWS_PACKAGE_FILES = [
     "build/build-php.sh",
     "build/package-php-windows.sh",
+    "build/cached-download.sh",
     "build/windows/pecl.lock",
     "build/resolve-php-version.py",
 ]
 WINDOWS_SOURCE_FILES = WINDOWS_PACKAGE_FILES + [
     "build/build-php-windows.sh",
+    "build/cached-download.sh",
     "build/windows/Get-PhpSrc.ps1",
+    "build/windows/pecl-source.lock",
     "build/fetch-backports.sh",
     "build/spc-patches.sh",
 ]
