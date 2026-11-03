@@ -59,6 +59,8 @@ jobs:
   build:
     needs: plan
     if: needs.plan.outputs.count != '0'
+    # Without a name GitHub lists every matrix value, fingerprint included.
+    name: build (${{ matrix.line }}, ${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
