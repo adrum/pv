@@ -277,6 +277,15 @@ PY
             fail "could not fetch ${s_tgz} matching build/windows/pecl-source.lock"
         extract_into "${WORK}/${s_tgz}" "${WORK}/source/php-src/ext/${s_ext}" "${s_ext}-${s_version}"
         [[ -f "${WORK}/source/php-src/ext/${s_ext}/config.w32" ]] || fail "${s_tgz} has no config.w32"
+        # mongodb turns on SSPI authentication whenever php.net's libsasl is
+        # present but never links secur32.lib, where SSPI lives; x64 gets it
+        # from elsewhere, arm64 fails to link. Link it alongside.
+        if [[ "${s_ext}" == "mongodb" ]]; then
+            sed -i 's/^\(\s*\)mongoc_opts.MONGOC_ENABLE_SASL_SSPI = 1;/&\n\1ADD_FLAG("LIBS_MONGODB", "secur32.lib");/' \
+                "${WORK}/source/php-src/ext/mongodb/config.w32"
+            grep -q 'secur32.lib' "${WORK}/source/php-src/ext/mongodb/config.w32" ||
+                fail "could not link mongodb against secur32.lib"
+        fi
         case "${s_ext}" in
             ssh2)  PECL_CONFIGURE+=' "--with-ssh2=shared"' ;;
             # The serializer redis can use, built just before it.
