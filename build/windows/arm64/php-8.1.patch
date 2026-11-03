@@ -22,6 +22,9 @@ Ported from these php-src commits:
   ca011bbf56  Drop unsupported libxml2 2.10.0 symbols (the docb* exports);
               needed because these lines link 8.2's arm64 libxml2 2.11.
               UPGRADING.INTERNALS dropped
+  0c6fc66848  curl: add support for brotli and zstd on Windows, and
+  1088c7de1a  Make curl brotli and zstd optional on Windows: 8.2's arm64
+              libcurl links both; ext/curl/config.w32 as 8.2.35 has it
 
 diff --git a/Zend/asm/jump_arm64_aapcs_pe_armasm.asm b/Zend/asm/jump_arm64_aapcs_pe_armasm.asm
 new file mode 100644
@@ -425,6 +428,27 @@ index 120b166f..992d7d04 100644
  # define ZEND_INTRIN_AVX2_RESOLVER 1
  #endif
  
+diff --git a/ext/curl/config.w32 b/ext/curl/config.w32
+index f722c5fa..14ae1a28 100644
+--- a/ext/curl/config.w32
++++ b/ext/curl/config.w32
+@@ -26,6 +26,16 @@ if (PHP_CURL != "no") {
+ 			CHECK_LIB("libssh2.lib", "curl", PHP_CURL) &&
+ 			CHECK_LIB("nghttp2.lib", "curl", PHP_CURL))
+ 		) {
++		if (!(CHECK_HEADER_ADD_INCLUDE("brotli/decode.h", "CFLAGS_CURL") &&
++			CHECK_LIB("brotlidec.lib;brotlidec-static.lib", "curl", PHP_CURL) &&
++			CHECK_LIB("brotlicommon.lib;brotlicommon-static.lib", "curl", PHP_CURL)
++		)) {
++			WARNING("brotli in curl not enabled; libraries or headers not found");
++		}
++		if (!(CHECK_LIB("libzstd.lib;libzstd_a.lib", "curl", PHP_CURL)
++		)) {
++			WARNING("zstd in curl not enabled; library not found");
++		}
+ 		EXTENSION("curl", "interface.c multi.c share.c curl_file.c");
+ 		AC_DEFINE('HAVE_CURL', 1, 'Have cURL library');
+ 		ADD_FLAG("CFLAGS_CURL", "/D CURL_STATICLIB /D PHP_CURL_EXPORTS=1");
 diff --git a/ext/gd/libgd/gd_interpolation.c b/ext/gd/libgd/gd_interpolation.c
 index cf882137..966c70d4 100644
 --- a/ext/gd/libgd/gd_interpolation.c

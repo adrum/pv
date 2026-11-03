@@ -25,6 +25,11 @@ Ported from these php-src commits:
   ca011bbf56  Drop unsupported libxml2 2.10.0 symbols (the docb* exports);
               needed because these lines link 8.2's arm64 libxml2 2.11.
               UPGRADING.INTERNALS dropped
+  0c6fc66848  curl: add support for brotli and zstd on Windows, and
+  1088c7de1a  Make curl brotli and zstd optional on Windows: 8.2's arm64
+              libcurl links both; ext/curl/config.w32 as 8.2.35 has it
+  f06844239f  Support libzip 1.6 on Windows: 8.2's arm64 libzip needs
+              liblzma, which ext/zip/config.w32 links from 8.0 on
   pv's own    main/php_stdint.h takes the CRT's inttypes.h directly on VS
               2015 and later: on arm64, intrin.h includes stdint.h first, its
               guard then skips win32/php_inttypes.h, and PRIu64 and the other
@@ -162,6 +167,27 @@ index 58c42a28..f9c8b8df 100644
  # define ZEND_INTRIN_AVX2_RESOLVER 1
  #endif
  
+diff --git a/ext/curl/config.w32 b/ext/curl/config.w32
+index 8ff6718b..7c1c6018 100644
+--- a/ext/curl/config.w32
++++ b/ext/curl/config.w32
+@@ -26,6 +26,16 @@ if (PHP_CURL != "no") {
+ 			CHECK_LIB("libssh2.lib", "curl", PHP_CURL) &&
+ 			CHECK_LIB("nghttp2.lib", "curl", PHP_CURL))
+ 		) {
++		if (!(CHECK_HEADER_ADD_INCLUDE("brotli/decode.h", "CFLAGS_CURL") &&
++			CHECK_LIB("brotlidec.lib;brotlidec-static.lib", "curl", PHP_CURL) &&
++			CHECK_LIB("brotlicommon.lib;brotlicommon-static.lib", "curl", PHP_CURL)
++		)) {
++			WARNING("brotli in curl not enabled; libraries or headers not found");
++		}
++		if (!(CHECK_LIB("libzstd.lib;libzstd_a.lib", "curl", PHP_CURL)
++		)) {
++			WARNING("zstd in curl not enabled; library not found");
++		}
+ 		EXTENSION("curl", "interface.c multi.c share.c curl_file.c");
+ 		AC_DEFINE('HAVE_CURL', 1, 'Have cURL library');
+ 		ADD_FLAG("CFLAGS_CURL", "/D CURL_STATICLIB");
 diff --git a/ext/gd/libgd/gd_interpolation.c b/ext/gd/libgd/gd_interpolation.c
 index 5247ad40..f0ddb150 100644
 --- a/ext/gd/libgd/gd_interpolation.c
@@ -476,6 +502,19 @@ index 0c953618..06789f02 100644
  	while (len > 0) {
  		if (*str == '\\') {
  			str++;				/* skip the slash */
+diff --git a/ext/zip/config.w32 b/ext/zip/config.w32
+index 034543fa..9c51a34b 100644
+--- a/ext/zip/config.w32
++++ b/ext/zip/config.w32
+@@ -5,7 +5,7 @@ ARG_ENABLE("zip", "ZIP support", "yes");
+ if (PHP_ZIP != "no") {
+ 	if (CHECK_HEADER_ADD_INCLUDE("zip.h", "CFLAGS_ZIP", PHP_PHP_BUILD + "\\include;" + PHP_EXTRA_INCLUDES) &&
+ 		CHECK_HEADER_ADD_INCLUDE("zipconf.h", "CFLAGS_ZIP", PHP_PHP_BUILD + "\\lib\\libzip\\include;" + PHP_EXTRA_LIBS + "\\libzip\\include;" + PHP_ZIP) &&
+-		(PHP_ZIP_SHARED && CHECK_LIB("libzip.lib", "zip", PHP_ZIP) || CHECK_LIB("libzip_a.lib", "zip", PHP_ZIP) && CHECK_LIB("libbz2_a.lib", "zip", PHP_ZIP) && CHECK_LIB("zlib_a.lib", "zip", PHP_ZIP))
++		(PHP_ZIP_SHARED && CHECK_LIB("libzip.lib", "zip", PHP_ZIP) || CHECK_LIB("libzip_a.lib", "zip", PHP_ZIP) && CHECK_LIB("libbz2_a.lib", "zip", PHP_ZIP) && CHECK_LIB("zlib_a.lib", "zip", PHP_ZIP) && CHECK_LIB("liblzma_a.lib", "zip", PHP_ZIP))
+ 	) {
+ 		EXTENSION('zip', 'php_zip.c zip_stream.c');
+ 
 diff --git a/main/php_stdint.h b/main/php_stdint.h
 index 3e5fd001..af211163 100644
 --- a/main/php_stdint.h
