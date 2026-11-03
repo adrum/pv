@@ -1,0 +1,4 @@
+# Patches must reach the build byte for byte. php-src carries CRLF lines (its
+# armasm sources) and LF ones, and a checkout that converts line endings,
+# as Git for Windows does by default, breaks every hunk.
+*.patch -text
