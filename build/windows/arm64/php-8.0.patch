@@ -1,0 +1,737 @@
+PHP 8.0 for Windows on arm64: php-src's Windows arm64 support, which landed
+in 8.2, ported to 8.0.30 as pv builds it (after build/backports/php-8.0.list).
+Applied by build/build-php-windows.sh with `git apply` before building.
+
+Ported from these php-src commits:
+  02881a76a8  Port win32/codepage.c codes for windows arm64
+  279a297172  Windows arm64 build system support; its fiber assembly and
+              fiber build block dropped (no fibers before 8.1), and 8.0's
+              toolset_setup_arch, which defines ARCHITECTURE rather than
+              PHP_BUILD_ARCH, adapted by hand
+  3a843f953b  Windows arm64 zend and standard extension support; the
+              Zend/zend_atomic.h hunk dropped (no zend_atomic in 8.0), the
+              json_encoder.c MSVC workaround adapted to 8.0's int return,
+              and string.c's and base64.c's NEON guards adapted by hand
+  2be3aa86f0  gd's emmintrin.h on Windows arm64; its zend_vm_execute hunks
+              do not apply, 8.0 having no execute_ex_real trampoline
+  e2da6b4bf9  Use the default archive names for Windows ARM64 builds
+
+diff --git a/Zend/zend_cpuinfo.c b/Zend/zend_cpuinfo.c
+index 102b0f8c..b17056d4 100644
+--- a/Zend/zend_cpuinfo.c
++++ b/Zend/zend_cpuinfo.c
+@@ -28,15 +28,15 @@ typedef struct _zend_cpu_info {
+ 
+ static zend_cpu_info cpuinfo = {0};
+ 
+-#if defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+-# if defined(HAVE_CPUID_H) && defined(HAVE_CPUID_COUNT)
+-# include <cpuid.h>
++#if (defined(__GNUC__) || defined(__clang__)) && (defined(__i386__) || defined(__x86_64__))
++# if defined(HAVE_CPUID_H) && defined(HAVE_CPUID_COUNT) /* use cpuid.h functions */
++#  include <cpuid.h>
+ static void __zend_cpuid(uint32_t func, uint32_t subfunc, zend_cpu_info *cpuinfo) {
+ 	__cpuid_count(func, subfunc, cpuinfo->eax, cpuinfo->ebx, cpuinfo->ecx, cpuinfo->edx);
+ }
+-# else
++# else /* use inline asm */
+ static void __zend_cpuid(uint32_t func, uint32_t subfunc, zend_cpu_info *cpuinfo) {
+-#if defined(__i386__) && (defined(__pic__) || defined(__PIC__))
++#  if defined(__i386__) && (defined(__pic__) || defined(__PIC__))
+ 	/* PIC on i386 uses %ebx, so preserve it. */
+ 	__asm__ __volatile__ (
+ 		"pushl  %%ebx\n"
+@@ -46,16 +46,16 @@ static void __zend_cpuid(uint32_t func, uint32_t subfunc, zend_cpu_info *cpuinfo
+ 		: "=a"(cpuinfo->eax), "=r"(cpuinfo->ebx), "=c"(cpuinfo->ecx), "=d"(cpuinfo->edx)
+ 		: "a"(func), "c"(subfunc)
+ 	);
+-#else
++#  else
+ 	__asm__ __volatile__ (
+ 		"cpuid"
+ 		: "=a"(cpuinfo->eax), "=b"(cpuinfo->ebx), "=c"(cpuinfo->ecx), "=d"(cpuinfo->edx)
+ 		: "a"(func), "c"(subfunc)
+ 	);
+-#endif
++#  endif
+ }
+ # endif
+-#elif defined(ZEND_WIN32) && !defined(__clang__)
++#elif defined(_MSC_VER) && !defined(__clang__) && (defined(_M_X64) || defined(_M_IX86)) /* use MSVC __cpuidex intrin */
+ # include <intrin.h>
+ static void __zend_cpuid(uint32_t func, uint32_t subfunc, zend_cpu_info *cpuinfo) {
+ 	int regs[4];
+@@ -67,7 +67,7 @@ static void __zend_cpuid(uint32_t func, uint32_t subfunc, zend_cpu_info *cpuinfo
+ 	cpuinfo->ecx = regs[2];
+ 	cpuinfo->edx = regs[3];
+ }
+-#else
++#else /* fall back to zero */
+ static void __zend_cpuid(uint32_t func, uint32_t subfunc, zend_cpu_info *cpuinfo) {
+ 	cpuinfo->eax = 0;
+ }
+diff --git a/Zend/zend_hash.c b/Zend/zend_hash.c
+index a4c318d1..95516b30 100644
+--- a/Zend/zend_hash.c
++++ b/Zend/zend_hash.c
+@@ -22,7 +22,7 @@
+ #include "zend_globals.h"
+ #include "zend_variables.h"
+ 
+-#if defined(__aarch64__)
++#if defined(__aarch64__) || defined(_M_ARM64)
+ # include <arm_neon.h>
+ #endif
+ 
+@@ -182,7 +182,7 @@ static zend_always_inline void zend_hash_real_init_mixed_ex(HashTable *ht)
+ 			_mm_storeu_si128((__m128i*)&HT_HASH_EX(data,  8), xmm0);
+ 			_mm_storeu_si128((__m128i*)&HT_HASH_EX(data, 12), xmm0);
+ 		} while (0);
+-#elif defined(__aarch64__)
++#elif defined(__aarch64__) || defined(_M_ARM64)
+ 		do {
+ 			int32x4_t t = vdupq_n_s32(-1);
+ 			vst1q_s32((int32_t*)&HT_HASH_EX(data,  0), t);
+diff --git a/Zend/zend_multiply.h b/Zend/zend_multiply.h
+index bfe1b8e8..c570b040 100644
+--- a/Zend/zend_multiply.h
++++ b/Zend/zend_multiply.h
+@@ -94,6 +94,19 @@
+ 		(dval) = (double)(a) * (double)(b); \
+ 	} \
+ } while (0)
++# elif defined(_M_ARM64)
++#  pragma intrinsic(__mulh)
++#  define ZEND_SIGNED_MULTIPLY_LONG(a, b, lval, dval, usedval) do {       \
++	__int64 __high = __mulh((a), (b)); \
++	__int64 __low  = (a) * (b); \
++	if ((__low >> 63I64) == __high) { \
++		(usedval) = 0; \
++		(lval) = __low; \
++	} else { \
++		(usedval) = 1; \
++		(dval) = (double)(a) * (double)(b); \
++	} \
++} while (0)
+ # else
+ #  define ZEND_SIGNED_MULTIPLY_LONG(a, b, lval, dval, usedval) do {	\
+ 	zend_long   __lres  = (a) * (b);										\
+diff --git a/ext/gd/libgd/gd_interpolation.c b/ext/gd/libgd/gd_interpolation.c
+index 2ae24cca..8b43bfd0 100644
+--- a/ext/gd/libgd/gd_interpolation.c
++++ b/ext/gd/libgd/gd_interpolation.c
+@@ -61,7 +61,7 @@ TODO:
+ #include "gd.h"
+ #include "gdhelpers.h"
+ 
+-#ifdef _MSC_VER
++#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
+ # pragma optimize("t", on)
+ # include <emmintrin.h>
+ #endif
+diff --git a/ext/json/json_encoder.c b/ext/json/json_encoder.c
+index 92e4a109..3e8960d2 100644
+--- a/ext/json/json_encoder.c
++++ b/ext/json/json_encoder.c
+@@ -89,7 +89,14 @@ static inline void php_json_pretty_print_indent(smart_str *buf, int options, php
+ 
+ /* }}} */
+ 
+-static inline int php_json_is_valid_double(double d) /* {{{ */
++static
++#if defined(_MSC_VER) && defined(_M_ARM64)
++// MSVC bug: https://developercommunity.visualstudio.com/t/corrupt-optimization-on-arm64-with-Ox-/10102551
++zend_never_inline
++#else
++inline
++#endif
++int php_json_is_valid_double(double d) /* {{{ */
+ {
+ 	return !zend_isinf(d) && !zend_isnan(d);
+ }
+diff --git a/ext/opcache/ZendAccelerator.c b/ext/opcache/ZendAccelerator.c
+index 028a960b..44c69c60 100644
+--- a/ext/opcache/ZendAccelerator.c
++++ b/ext/opcache/ZendAccelerator.c
+@@ -2204,7 +2204,7 @@ zend_op_array *persistent_compile_file(zend_file_handle *file_handle, int type)
+ 		ZCSG(hits)++; /* TBFixed: may lose one hit */
+ 		persistent_script->dynamic_members.hits++; /* see above */
+ #else
+-#ifdef _M_X64
++#if ZEND_ENABLE_ZVAL_LONG64
+ 		InterlockedIncrement64(&ZCSG(hits));
+ #else
+ 		InterlockedIncrement(&ZCSG(hits));
+diff --git a/ext/standard/base64.c b/ext/standard/base64.c
+index 2d67f88f..9a3cdf0a 100644
+--- a/ext/standard/base64.c
++++ b/ext/standard/base64.c
+@@ -51,7 +51,7 @@ static const short base64_reverse_table[256] = {
+ };
+ /* }}} */
+ 
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(_M_ARM64)
+ #include <arm_neon.h>
+ 
+ static zend_always_inline uint8x16_t encode_toascii(const uint8x16_t input, const uint8x16x2_t shift_LUT)
+@@ -118,11 +118,11 @@ static zend_always_inline unsigned char *neon_base64_encode(const unsigned char
+         *left = inl;
+ 	return out;
+ }
+-#endif /* __aarch64__ */
++#endif /* defined(__aarch64__) || defined(_M_ARM64) */
+ 
+ static zend_always_inline unsigned char *php_base64_encode_impl(const unsigned char *in, size_t inl, unsigned char *out) /* {{{ */
+ {
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(_M_ARM64)
+ 	if (inl >= 16 * 3) {
+ 		size_t left = 0;
+ 		out = neon_base64_encode(in, inl, out, &left);
+@@ -161,7 +161,7 @@ static zend_always_inline unsigned char *php_base64_encode_impl(const unsigned c
+ }
+ /* }}} */
+ 
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(_M_ARM64)
+ static zend_always_inline uint8x16_t decode_fromascii(const uint8x16_t input, uint8x16_t *error, const uint8x16x2_t shiftLUT, const uint8x16x2_t maskLUT, const uint8x16x2_t bitposLUT) {
+ 	const uint8x16_t higher_nibble = vshrq_n_u8(input, 4);
+ 	const uint8x16_t lower_nibble = vandq_u8(input, vdupq_n_u8(0x0f));
+@@ -241,14 +241,14 @@ static zend_always_inline size_t neon_base64_decode(const unsigned char *in, siz
+ 	*left = inl;
+ 	return out - out_orig;
+ }
+-#endif /* __aarch64__ */
++#endif /* defined(__aarch64__) || defined(_M_ARM64) */
+ 
+ static zend_always_inline int php_base64_decode_impl(const unsigned char *in, size_t inl, unsigned char *out, size_t *outl, zend_bool strict) /* {{{ */
+ {
+ 	int ch;
+ 	size_t i = 0, padding = 0, j = *outl;
+ 
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(_M_ARM64)
+ 	if (inl >= 16 * 4) {
+ 		size_t left = 0;
+ 		j += neon_base64_decode(in, inl, out, &left);
+diff --git a/ext/standard/config.w32 b/ext/standard/config.w32
+index 3de43d04..24472780 100644
+--- a/ext/standard/config.w32
++++ b/ext/standard/config.w32
+@@ -25,7 +25,7 @@ ADD_FLAG("LIBS_STANDARD", "iphlpapi.lib");
+ 
+ EXTENSION("standard", "array.c base64.c basic_functions.c browscap.c \
+ 	crc32.c crypt.c crypt_freesec.c crypt_blowfish.c crypt_sha256.c \
+-	crypt_sha512.c  php_crypt_r.c crc32_x86.c \
++	crypt_sha512.c  php_crypt_r.c " + (TARGET_ARCH != 'arm64'? " crc32_x86.c" : "") + " \
+ 	datetime.c dir.c dl.c dns.c dns_win32.c exec.c \
+ 	file.c filestat.c formatted_print.c fsock.c head.c html.c image.c \
+ 	info.c iptc.c lcg.c link.c mail.c math.c md5.c metaphone.c microtime.c \
+diff --git a/ext/standard/string.c b/ext/standard/string.c
+index 168d3419..24b9a32a 100644
+--- a/ext/standard/string.c
++++ b/ext/standard/string.c
+@@ -3246,7 +3246,7 @@ PHP_FUNCTION(strtr)
+ /* {{{ Reverse a string */
+ #if ZEND_INTRIN_SSSE3_NATIVE
+ #include <tmmintrin.h>
+-#elif defined(__aarch64__)
++#elif defined(__aarch64__) || defined(_M_ARM64)
+ #include <arm_neon.h>
+ #endif
+ PHP_FUNCTION(strrev)
+@@ -3293,6 +3293,19 @@ PHP_FUNCTION(strrev)
+ 			e -= 16;
+ 		} while (e - s > 15);
+ 	}
++#elif defined(_M_ARM64)
++	if (e - s > 15) {
++		do {
++			const __n128 str = vld1q_u8((uint8_t *)(e - 15));
++			/* Synthesize rev128 with a rev64 + ext. */
++			/* strange force cast limit on windows: you cannot convert anything */
++			const __n128 rev = vrev64q_u8(str);
++			const __n128 ext = vextq_u64(rev, rev, 1);
++			vst1q_u8((uint8_t *)p, ext);
++			p += 16;
++			e -= 16;
++		} while (e - s > 15);
++	}
+ #endif
+ 	while (e >= s) {
+ 		*p++ = *e--;
+@@ -3772,7 +3785,7 @@ do_escape:
+ /* }}} */
+ #endif
+ 
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(_M_ARM64)
+ typedef union {
+ 	uint8_t mem[16];
+ 	uint64_t dw[2];
+@@ -3808,7 +3821,7 @@ static zend_always_inline char *aarch64_add_slashes(quad_word res, const char *s
+ 	}
+ 	return target;
+ }
+-#endif /* __aarch64__ */
++#endif /* defined(__aarch64__) || defined(_M_ARM64) */
+ 
+ #if !ZEND_INTRIN_SSE4_2_NATIVE
+ # if ZEND_INTRIN_SSE4_2_RESOLVER
+@@ -3830,7 +3843,7 @@ PHPAPI zend_string *php_addslashes(zend_string *str)
+ 	source = ZSTR_VAL(str);
+ 	end = source + ZSTR_LEN(str);
+ 
+-# ifdef __aarch64__
++# if defined(__aarch64__) || defined(_M_ARM64)
+ 	quad_word res = {0};
+ 	if (ZSTR_LEN(str) > 15) {
+ 		do {
+@@ -3841,7 +3854,7 @@ PHPAPI zend_string *php_addslashes(zend_string *str)
+ 		} while ((end - source) > 15);
+ 	}
+ 	/* Finish the last 15 bytes or less with the scalar loop. */
+-# endif /* __aarch64__ */
++# endif /* defined(__aarch64__) || defined(_M_ARM64) */
+ 
+ 	while (source < end) {
+ 		switch (*source) {
+@@ -3864,7 +3877,7 @@ do_escape:
+ 	memcpy(ZSTR_VAL(new_str), ZSTR_VAL(str), offset);
+ 	target = ZSTR_VAL(new_str) + offset;
+ 
+-# ifdef __aarch64__
++# if defined(__aarch64__) || defined(_M_ARM64)
+ 	if (res.dw[0] | res.dw[1]) {
+ 		target = aarch64_add_slashes(res, source, target);
+ 		source += 16;
+@@ -3880,7 +3893,7 @@ do_escape:
+ 		}
+ 	}
+ 	/* Finish the last 15 bytes or less with the scalar loop. */
+-# endif /* __aarch64__ */
++# endif /* defined(__aarch64__) || defined(_M_ARM64) */
+ 
+ 	while (source < end) {
+ 		switch (*source) {
+@@ -3919,7 +3932,7 @@ do_escape:
+  * be careful, this edits the string in-place */
+ static zend_always_inline char *php_stripslashes_impl(const char *str, char *out, size_t len)
+ {
+-#ifdef __aarch64__
++#if defined(__aarch64__) || defined(_M_ARM64)
+ 	while (len > 15) {
+ 		uint8x16_t x = vld1q_u8((uint8_t *)str);
+ 		quad_word q;
+@@ -3953,7 +3966,7 @@ static zend_always_inline char *php_stripslashes_impl(const char *str, char *out
+ 		}
+ 	}
+ 	/* Finish the last 15 bytes or less with the scalar loop. */
+-#endif /* __aarch64__ */
++#endif /* defined(__aarch64__) || defined(_M_ARM64) */
+ 	while (len > 0) {
+ 		if (*str == '\\') {
+ 			str++;				/* skip the slash */
+diff --git a/win32/build/Makefile b/win32/build/Makefile
+index 8ccad930..e82d6c50 100644
+--- a/win32/build/Makefile
++++ b/win32/build/Makefile
+@@ -25,7 +25,7 @@ PHP_BUILD=$(PHP_BUILD)
+ !if "$(PHP_SIMD_SCALE)" == ""
+ SIMD_SUFFIX=
+ !else
+-!if "$(PHP_SIMD_SCALE)" == "SSE2"
++!if "$(PHP_SIMD_SCALE)" == "SSE2" || "$(PHP_SIMD_SCALE)" == "NEON"
+ SIMD_SUFFIX=
+ !else
+ SIMD_SUFFIX=-$(PHP_SIMD_SCALE)
+@@ -130,10 +130,10 @@ $(PHPDLL_RES): win32\build\template.rc
+ 		/I$(BUILD_DIR) /d MC_INCLUDE="\"$(MCFILE)\"" \
+ 		win32\build\template.rc
+ 
+-$(BUILD_DIR)\$(PHPDLL): generated_files $(PHPDEF) $(PHP_GLOBAL_OBJS) $(STATIC_EXT_OBJS) $(PHPDLL_RES) $(MCFILE)
++$(BUILD_DIR)\$(PHPDLL): generated_files $(PHPDEF) $(PHP_GLOBAL_OBJS) $(STATIC_EXT_OBJS) $(PHPDLL_RES) $(ASM_OBJS) $(MCFILE)
+ 	@copy win32\build\default.manifest $(BUILD_DIR)\$(PHPDLL).manifest >nul
+ #	@$(CC) $(PHP_GLOBAL_OBJS) $(STATIC_EXT_OBJS) $(STATIC_EXT_LIBS) $(LIBS) $(PHPDLL_RES) /link /out:$(BUILD_DIR)\$(PHPDLL) $(PHP8_PGD_OPTION) $(PHP_LDFLAGS) $(LDFLAGS) $(STATIC_EXT_LDFLAGS)
+-	@"$(LINK)" $(PHP_GLOBAL_OBJS_RESP) $(STATIC_EXT_OBJS_RESP) $(STATIC_EXT_LIBS) $(LIBS) $(PHPDLL_RES) /out:$(BUILD_DIR)\$(PHPDLL) $(PHP8_PGD_OPTION) $(PHP_LDFLAGS) $(LDFLAGS) $(STATIC_EXT_LDFLAGS)
++	@"$(LINK)" $(PHP_GLOBAL_OBJS_RESP) $(STATIC_EXT_OBJS_RESP) $(STATIC_EXT_LIBS) $(LIBS) $(ASM_OBJS) $(PHPDLL_RES) /out:$(BUILD_DIR)\$(PHPDLL) $(PHP8_PGD_OPTION) $(PHP_LDFLAGS) $(LDFLAGS) $(STATIC_EXT_LDFLAGS)
+ 	-@$(_VC_MANIFEST_EMBED_DLL)
+ 
+ $(BUILD_DIR)\$(PHPLIB): $(BUILD_DIR)\$(PHPDLL)
+diff --git a/win32/build/config.w32 b/win32/build/config.w32
+index a7d60812..5f4dc65a 100644
+--- a/win32/build/config.w32
++++ b/win32/build/config.w32
+@@ -14,8 +14,10 @@ ARG_WITH('cygwin', 'Path to cygwin utilities on your system', '\\cygwin');
+ 
+ toolset_setup_compiler();
+ 
+-// do we use x64 or 80x86 version of compiler?
+-X64 = toolset_is_64();
++HOST_ARCH = toolset_host_arch();
++TARGET_ARCH = toolset_target_arch();
++// for compatible only
++X64 = TARGET_ARCH != 'x86';
+ toolset_setup_arch();
+ 
+ toolset_setup_linker();
+@@ -212,7 +214,7 @@ if (PHP_ANALYZER == "vs") {
+ 			pvscfg.WriteLine("exclude-path = " + PROGRAM_FILES + "\\windows kits\\");
+ 		}
+ 		pvscfg.WriteLine("vcinstalldir = " + VCINSTALLDIR);
+-		pvscfg.WriteLine("platform = " + (X64 ? 'x64' : 'Win32'));
++		pvscfg.WriteLine("platform = " + (TARGET_ARCH == 'x86' ? 'Win32' : 'x64'));
+ 		pvscfg.WriteLine("preprocessor = visualcpp");
+ 		pvscfg.WriteLine("language = C");
+ 		pvscfg.WriteLine("skip-cl-exe = no");
+diff --git a/win32/build/config.w32.phpize.in b/win32/build/config.w32.phpize.in
+index 72205fac..a82017f4 100644
+--- a/win32/build/config.w32.phpize.in
++++ b/win32/build/config.w32.phpize.in
+@@ -14,8 +14,10 @@ var PHP_CYGWIN="notset";
+ 
+ toolset_setup_compiler();
+ 
+-// do we use x64 or 80x86 version of compiler?
+-X64 = toolset_is_64();
++HOST_ARCH = toolset_host_arch();
++TARGET_ARCH = toolset_target_arch();
++// for compatible only
++X64 = TARGET_ARCH != 'x86';
+ toolset_setup_arch();
+ 
+ toolset_setup_linker();
+diff --git a/win32/build/confutils.js b/win32/build/confutils.js
+index bf88cdae..267cfa1d 100644
+--- a/win32/build/confutils.js
++++ b/win32/build/confutils.js
+@@ -168,9 +168,13 @@ function probe_binary(EXE, what)
+ 	}
+ 	var version = execute(command + '" 2>&1"');
+ 
+-	if (what == "64") {
+-		if (version.match(/x64/)) {
+-			return 1;
++	if (what == "arch") {
++		if (version.match(/x86/)) {
++			return "x86";
++		} else if (version.match(/x64/)) {
++			return "x64";
++		} else if (version.match(/ARM64/)) {
++			return "arm64";
+ 		}
+ 	} else {
+ 		if (version.match(/(\d+\.\d+(\.\d+)?(\.\d+)?)/)) {
+@@ -1671,7 +1675,7 @@ function ADD_SOURCES(dir, file_list, target, obj_dir)
+ 		}
+ 
+ 		if (PHP_ANALYZER == "clang") {
+-			var analyzer_base_args = X64 ? "-m64" : "-m32";
++			var analyzer_base_args = TARGET_ARCH == 'x86' ? "-m32" : "-m64";
+ 			var analyzer_base_flags = "";
+ 
+ 			analyzer_base_args += " --analyze";
+@@ -1694,10 +1698,14 @@ function ADD_SOURCES(dir, file_list, target, obj_dir)
+ 				analyzer_base_flags += " -D _MSC_VER=" + probe_binary(PATH_PROG('cl', null));
+ 			}
+ 
+-			if (X64) {
++			if (TARGET_ARCH == 'x64') {
+ 				analyzer_base_flags += " -D _M_X64 -D _WIN64";
+-			} else {
++			} else if (TARGET_ARCH == 'ARM64') {
++				analyzer_base_flags += " -D _M_ARM64 -D _WIN64";
++			} else if (TARGET_ARCH == 'x86') {
+ 				analyzer_base_flags += " -D _M_IX86 ";
++			} else {
++				ERROR("analyzer is not supported at arch " + TARGET_ARCH);
+ 			}
+ 			analyzer_base_flags += " -D _WIN32 -D WIN32 -D _WINDOWS";
+ 
+@@ -1709,8 +1717,8 @@ function ADD_SOURCES(dir, file_list, target, obj_dir)
+ 				analyzer_base_flags += " -I " + "\"" + vc_incs[i] + "\"";
+ 			}
+ 
+-			var cppcheck_platform = X64 ? "win64" : "win32A";
+-			var cppcheck_lib = "win32\\build\\cppcheck_" + (X64 ? "x64" : "x86") + ".cfg";
++			var cppcheck_platform = TARGET_ARCH == 'x86' ? "win32A" : "win64";
++			var cppcheck_lib = "win32\\build\\cppcheck_" + (TARGET_ARCH == 'x86' ? "x86" : "x64") + ".cfg"; // use x64 for arm64 yet
+ 			analyzer_base_args += "--enable=warning,performance,portability,information,missingInclude " +
+ 						"--platform=" + cppcheck_platform + " " +
+ 						"--library=windows.cfg --library=microsoft_sal.cfg " +
+@@ -1961,7 +1969,8 @@ function write_summary()
+ 	ar[k++] = ['Build type', PHP_DEBUG == "yes" ? "Debug" : "Release"];
+ 	ar[k++] = ['Thread Safety', PHP_ZTS == "yes" ? "Yes" : "No"];
+ 	ar[k++] = ['Compiler', COMPILER_NAME_LONG];
+-	ar[k++] = ['Architecture', X64 ? 'x64' : 'x86'];
++	ar[k++] = ['Target Architecture', TARGET_ARCH];
++	ar[k++] = ['Host Architecture', HOST_ARCH];
+ 	if (PHP_PGO == "yes") {
+ 		ar[k++] = ['Optimization', "PGO"];
+ 	} else if (PHP_PGI == "yes") {
+@@ -3126,10 +3135,32 @@ function toolset_get_compiler_name(short)
+ }
+ 
+ 
+-function toolset_is_64()
++function toolset_host_arch()
++{
++	var command = 'cmd /c "where cl.exe"';
++	var clpath = execute(command).split(/\n/)[0].replace(/\s$/, '');
++
++	var command = 'cmd /c "dumpbin "' + clpath + '" /nologo /headers"';
++	var full = execute(command);
++
++	/*
++	output is something like
++	FILE HEADER VALUES
++		8664 machine (x64)
++	*/
++	var matches = full.match(/FILE HEADER VALUES\s+[A-F0-9]{3,4}\smachine \((x64|x86|ARM64)\)/);
++
++	if(!matches){
++		ERROR("Unsupported toolset host");
++	}
++
++	return matches[1].toLowerCase();
++}
++
++function toolset_target_arch()
+ {
+ 	if (VS_TOOLSET) {
+-		return probe_binary(PHP_CL, 64);
++		return probe_binary(PHP_CL, 'arch');
+ 	} else if (CLANG_TOOLSET) {
+ 		/*var command = 'cmd /c ""' + PHP_CL + '" -v"';
+ 		var full = execute(command + '" 2>&1"');
+@@ -3139,26 +3170,22 @@ function toolset_is_64()
+ 		/* Even executed within an environment setup with vcvars32.bat,
+ 		clang-cl doesn't recognize the arch toolset. But as it needs
+ 		the VS environment, checking the arch of cl.exe is correct. */
+-		return probe_binary(PATH_PROG('cl', null), 64);
++		return probe_binary(PATH_PROG('cl', null), 'arch');
+ 	} else if (ICC_TOOLSET) {
+-		var command = 'cmd /c ""' + PHP_CL + '" -v"';
++		var command = 'cmd /c "where cl"';
+ 		var full = execute(command + '" 2>&1"');
+ 
+ 		return null != full.match(/Intel\(R\) 64/);
+ 	}
+ 
+-	ERROR("Unsupported toolset");
++	ERROR("Unsupported toolset target");
+ }
+ 
+ function toolset_setup_arch()
+ {
+-	if (X64) {
+-		STDOUT.WriteLine("  Detected 64-bit compiler");
+-	} else {
+-		STDOUT.WriteLine("  Detected 32-bit compiler");
+-	}
+-	AC_DEFINE('ARCHITECTURE', X64 ? 'x64' : 'x86', "Detected compiler architecture");
+-	DEFINE("PHP_ARCHITECTURE", X64 ? 'x64' : 'x86');
++	STDOUT.WriteLine("  Detected " + TARGET_ARCH + " compiler" + (TARGET_ARCH == HOST_ARCH ? "" : " (cross compile from " + HOST_ARCH + ")"));
++	AC_DEFINE('ARCHITECTURE', TARGET_ARCH, "Detected compiler architecture");
++	DEFINE("PHP_ARCHITECTURE", TARGET_ARCH);
+ }
+ 
+ function toolset_setup_codegen_arch()
+@@ -3172,7 +3199,7 @@ function toolset_setup_codegen_arch()
+ 
+ 		if ("IA32" != arc) {
+ 			ERROR("Only IA32 arch is supported by --with-codegen-arch, got '" + arc + "'");
+-		} else if (X64) {
++		} else if (TARGET_ARCH != 'x86') {
+ 			ERROR("IA32 arch is only supported with 32-bit build");
+ 		}
+ 		ADD_FLAG("CFLAGS", "/arch:" + arc);
+@@ -3232,10 +3259,10 @@ function toolset_setup_common_cflags()
+ 		// fun stuff: MS deprecated ANSI stdio and similar functions
+ 		// disable annoying warnings.  In addition, time_t defaults
+ 		// to 64-bit.  Ask for 32-bit.
+-		if (X64) {
+-			ADD_FLAG('CFLAGS', ' /wd4996 ');
+-		} else {
++		if (TARGET_ARCH == 'x86') {
+ 			ADD_FLAG('CFLAGS', ' /wd4996 /D_USE_32BIT_TIME_T=1 ');
++		} else {
++			ADD_FLAG('CFLAGS', ' /wd4996 ');
+ 		}
+ 
+ 		if (PHP_DEBUG == "yes") {
+@@ -3287,10 +3314,10 @@ function toolset_setup_common_cflags()
+ 
+ 		ADD_FLAG("CFLAGS", "/Zc:wchar_t");
+ 	} else if (CLANG_TOOLSET) {
+-		if (X64) {
+-			ADD_FLAG('CFLAGS', '-m64');
+-		} else {
++		if (TARGET_ARCH == 'x86') {
+ 			ADD_FLAG('CFLAGS', '-m32');
++		} else {
++			ADD_FLAG('CFLAGS', '-m64');
+ 		}
+ 		ADD_FLAG("CFLAGS", " /fallback ");
+ 		ADD_FLAG("CFLAGS", "-Xclang -fmodules");
+@@ -3320,6 +3347,14 @@ function toolset_setup_intrinsic_cflags()
+ 			ERROR("Can't enable intrinsics, --with-codegen-arch passed with an incompatible option. ")
+ 		}
+ 
++		if (TARGET_ARCH == 'arm64') {
++			/* arm64 supports neon */
++			configure_subst.Add("PHP_SIMD_SCALE", 'NEON');
++			/* all offically supported arm64 cpu supports crc32 (TODO: to be confirmed) */
++			AC_DEFINE('HAVE_ARCH64_CRC32', 1);
++			return;
++		}
++
+ 		if ("no" == PHP_NATIVE_INTRINSICS || "yes" == PHP_NATIVE_INTRINSICS) {
+ 			PHP_NATIVE_INTRINSICS = default_enabled;
+ 		}
+@@ -3347,7 +3382,7 @@ function toolset_setup_intrinsic_cflags()
+ 					}
+ 				}
+ 			}
+-			if (!X64) {
++			if (TARGET_ARCH == 'x86') {
+ 				/* SSE2 is currently the default on 32-bit. It could change later,
+ 					for now no need to pass it. But, if SSE only was chosen,
+ 					/arch:SSE is required. */
+@@ -3412,7 +3447,7 @@ function toolset_setup_build_mode()
+ {
+ 	if (PHP_DEBUG == "yes") {
+ 		ADD_FLAG("CFLAGS", "/LDd /MDd /Od /D _DEBUG /D ZEND_DEBUG=1 " +
+-			(X64?"/Zi":"/ZI"));
++			(TARGET_ARCH == 'x86'?"/ZI":"/Zi"));
+ 		ADD_FLAG("LDFLAGS", "/debug");
+ 		// Avoid problems when linking to release libraries that use the release
+ 		// version of the libc
+@@ -3447,11 +3482,16 @@ function object_out_dir_option_handle()
+ 	} else {
+ 		PHP_OBJECT_OUT_DIR = FSO.GetAbsolutePathName(".") + '\\';
+ 
+-		if (X64) {
++		if (TARGET_ARCH == 'x64') {
+ 			PHP_OBJECT_OUT_DIR += 'x64\\';
+ 			if (!FSO.FolderExists(PHP_OBJECT_OUT_DIR)) {
+ 				FSO.CreateFolder(PHP_OBJECT_OUT_DIR);
+ 			}
++		} else if (TARGET_ARCH == 'arm64') {
++			PHP_OBJECT_OUT_DIR += 'arm64\\';
++			if (!FSO.FolderExists(PHP_OBJECT_OUT_DIR)) {
++				FSO.CreateFolder(PHP_OBJECT_OUT_DIR);
++			}
+ 		}
+ 	}
+ }
+@@ -3508,7 +3548,7 @@ function php_build_option_handle()
+ 			if (FSO.FolderExists("..\\php_build")) {
+ 				PHP_PHP_BUILD = "..\\php_build";
+ 			} else {
+-				if (X64) {
++				if (TARGET_ARCH != 'x86') {
+ 					if (FSO.FolderExists("..\\win64build")) {
+ 						PHP_PHP_BUILD = "..\\win64build";
+ 					} else if (FSO.FolderExists("..\\php-win64-dev\\php_build")) {
+@@ -3670,7 +3710,7 @@ function get_clang_lib_dir()
+ 		ERROR("Failed to determine clang lib path");
+ 	}
+ 
+-	if (X64) {
++	if (TARGET_ARCH != 'x86') {
+ 		ret = PROGRAM_FILES + "\\LLVM\\lib\\clang\\" + ver + "\\lib";
+ 		if (!FSO.FolderExists(ret)) {
+ 			ret = null;
+@@ -3707,10 +3747,13 @@ function add_asan_opts(cflags_name, libs_name, ldflags_name)
+ 		ADD_FLAG(cflags_name, "-fsanitize=address,undefined");
+ 	}
+ 	if (!!libs_name) {
+-		if (X64) {
++		if (TARGET_ARCH == 'x64') {
+ 			ADD_FLAG(libs_name, "clang_rt.asan_dynamic-x86_64.lib clang_rt.asan_dynamic_runtime_thunk-x86_64.lib");
+-		} else {
++		} else if (TARGET_ARCH == 'x86') {
+ 			ADD_FLAG(libs_name, "clang_rt.asan_dynamic-i386.lib clang_rt.asan_dynamic_runtime_thunk-i386.lib");
++		} else {
++			// TODO: support arm64?
++			ERROR("Failed to determine clang lib path");
+ 		}
+ 	}
+ 
+diff --git a/win32/codepage.c b/win32/codepage.c
+index 6c00c532..188e8965 100644
+--- a/win32/codepage.c
++++ b/win32/codepage.c
+@@ -18,7 +18,11 @@
+ 
+ #include "php.h"
+ #include "SAPI.h"
+-#include <emmintrin.h>
++#ifdef _M_ARM64
++# include <arm_neon.h>
++#else
++# include <emmintrin.h>
++#endif // _M_ARM64
+ 
+ #include "win32/console.h"
+ 
+@@ -134,6 +138,18 @@ PW32CP wchar_t *php_win32_cp_conv_ascii_to_w(const char* in, size_t in_len, size
+ 		}
+ 
+ 		/* Process aligned chunk. */
++#ifdef _M_ARM64
++		uint8x16_t ver_err = {0};
++		while (end - idx > 15) {
++			const uint8x16_t block = vld1q_u8((const void*)idx);
++			ver_err = vorrq_u8(ver_err, block);
++			idx += 16;
++		}
++		ver_err = vshrq_n_u8(ver_err, 7);
++		if (vmaxvq_u8(ver_err)) {
++			ASCII_FAIL_RETURN()
++		}
++#else
+ 		__m128i vec_err = _mm_setzero_si128();
+ 		while (end - idx > 15) {
+ 			const __m128i block = _mm_load_si128((__m128i *)idx);
+@@ -143,6 +159,7 @@ PW32CP wchar_t *php_win32_cp_conv_ascii_to_w(const char* in, size_t in_len, size
+ 		if (_mm_movemask_epi8(vec_err)) {
+ 			ASCII_FAIL_RETURN()
+ 		}
++#endif // _M_ARM64
+ 	}
+ 
+ 	/* Process the trailing part, or otherwise process string < 16 bytes. */
+@@ -173,6 +190,22 @@ PW32CP wchar_t *php_win32_cp_conv_ascii_to_w(const char* in, size_t in_len, size
+ 
+ 		/* Process aligned chunk. */
+ 		if (end - idx > 15) {
++#ifdef _M_ARM64
++			while (end - idx > 15) {
++				/*
++				vst2q_u8 below will store interlaced vector by 8bits, so this will be little endian wchar
++				at wrote time all windows arm64 is little endian
++				 */
++				uint8x16x2_t vec = {/* .val = */{
++					vld1q_u8((const void*)idx),
++					{0},
++				}};
++
++				vst2q_u8((void*)ret_idx, vec);
++				idx += 16;
++				ret_idx += 16;
++			}
++#else
+ 			const __m128i mask = _mm_set1_epi32(0);
+ 			while (end - idx > 15) {
+ 				const __m128i block = _mm_load_si128((__m128i *)idx);
+@@ -187,6 +220,7 @@ PW32CP wchar_t *php_win32_cp_conv_ascii_to_w(const char* in, size_t in_len, size
+ 				idx += 16;
+ 				ret_idx += 8;
+ 			}
++#endif // _M_ARM64
+ 		}
+ 	}
+ 

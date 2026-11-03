@@ -153,9 +153,10 @@ if [[ "${ARCH}" == "arm64" ]]; then
     # dependencies for 8.2 and 8.3 under vs16 alone. MSVC 2015-2022 are binary
     # compatible and a newer linker takes older libraries, and on arm64 PHP and
     # every extension are compiled together here, so build with vs17 against
-    # the vs16 dependency set.
+    # the vs16 dependency set. That goes for the lines pv ports to arm64 too
+    # (vc15 7.4, vs16 8.0 and 8.1), which take 8.2's vs16 set below.
     export PV_DEPS_VS=""
-    if [[ "${VS}" == "vs16" ]]; then
+    if [[ "${VS}" == "vs16" || "${VS}" == "vc15" ]]; then
         PV_DEPS_VS="vs16"
         VS="vs17"
         "${PYTHON}" -I -c '
