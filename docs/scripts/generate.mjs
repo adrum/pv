@@ -79,6 +79,23 @@ const windowsExtensions = extract(
   .split(/\s+/)
   .filter(Boolean);
 
+// The PECL extensions Windows adds: every one on x64, and on arm64 those
+// pecl-source.lock compiles in-tree.
+const pecl = extract(
+  /^PECL_ORDER="([^"]+)"/m,
+  windowsScript,
+  'PECL_ORDER in build/package-php-windows.sh',
+)
+  .split(/\s+/)
+  .filter(Boolean);
+const peclSource = new Set(
+  readFileSync(join(repo, 'build', 'windows', 'pecl-source.lock'), 'utf8')
+    .split('\n')
+    .filter((row) => row && !row.startsWith('#'))
+    .map((row) => row.split(/\s+/)[0]),
+);
+const peclNotArm64 = pecl.filter((name) => !peclSource.has(name));
+
 const planner = readFileSync(join(repo, 'build', 'plan.py'), 'utf8');
 const runners = Object.fromEntries(
   [
@@ -145,9 +162,9 @@ silently dropped extension fails the build rather than reaching you.
 
 ## Windows
 
-Windows ships php.net's official build rather than one of ours, so its set is
-php.net's. On top of what php.net compiles in, these ship as DLLs and are
-enabled, where the line has them:
+Windows ships php.net's build, or one compiled from php.net's source the same
+way, so its set is php.net's. On top of what php.net compiles in, these ship
+as DLLs and are enabled, where the line has them:
 
 <div style="columns: 3; font-family: var(--sl-font-mono); font-size: 0.9em">
 
@@ -155,8 +172,22 @@ ${windowsExtensions.map((name) => `- ${name}`).join('\n')}
 
 </div>
 
-plus opcache and **xdebug** — xdebug.org's official build, verified against
-the SHA256 it publishes, loaded with \`xdebug.mode = off\` exactly as above.
+plus these from PECL — php.net's PECL Windows builds on x64, pinned by sha256,
+and the same releases compiled in-tree on arm64:
+
+<div style="columns: 3; font-family: var(--sl-font-mono); font-size: 0.9em">
+
+${pecl.map((name) => `- ${name}`).join('\n')}
+
+</div>
+
+arm64 has no ${peclNotArm64.join(' or ')}: php.net's arm64 dependencies do not
+carry the libraries they need. Each line gets the release PECL built for it,
+and none where there is none (mongodb needs 8.1).
+
+And opcache and **xdebug** — on x64, xdebug.org's official build, verified
+against the SHA256 it publishes; on arm64, xdebug.org's source compiled
+in-tree. Either way it is loaded with \`xdebug.mode = off\` exactly as above.
 There is no \`php-config\` or \`phpize\` on Windows, so an extension is added
 rather than compiled: its DLL in \`bin\\ext\`, and an \`extension=\` line in
 \`etc/conf.d\`.
@@ -171,8 +202,8 @@ writeFileSync(
     `
 Each wave builds every PHP line for every platform below, on a **native**
 runner — cross-compiling PHP to another architecture is not practical, and
-arm64 Linux in particular cannot be built from an amd64 host. Windows is the
-exception: it is compiled only for lines php.net no longer builds.
+arm64 Linux in particular cannot be built from an amd64 host. Windows x64 is
+the exception: it is compiled only for lines php.net no longer builds.
 
 | Platform | Runner |
 |---|---|
@@ -180,10 +211,10 @@ ${platforms.map((p) => `| \`${p}\` | \`${runners[p] ?? '—'}\` |`).join('\n')}
 
 ## Windows
 
-PHP for Windows is built by php.net with MSVC, and pv does not try to rebuild
-it. \`windows-x86_64\` is php.net's non-thread-safe x64 build, verified against
-the sha256 php.net publishes, with xdebug.org's Xdebug added the same way. The
-Windows runner exists to run the packaged \`php.exe\` before it is published.
+PHP for Windows is built by php.net with MSVC. \`windows-x86_64\` is php.net's
+non-thread-safe x64 build, verified against the sha256 php.net publishes, with
+xdebug.org's Xdebug added the same way. The Windows runner exists to run the
+packaged \`php.exe\` before it is published.
 
 The end-of-life lines with security backports (see \`build/backports/\`) are
 the exception. php.net's last Windows build of such a line never gets another
@@ -193,9 +224,16 @@ with the dependencies php.net last shipped for that compiler. Those
 dependencies are frozen, so the fixes are to PHP, not to the libraries it
 bundles.
 
-It needs the Microsoft Visual C++ Redistributable, as every official PHP for
-Windows does, and has no \`php-fpm\`, \`php-config\` or \`phpize\`. There is no
-arm64 build; Windows on Arm runs the x64 one under emulation.
+php.net publishes no arm64 build, so \`windows-arm64\` is compiled for every
+line on \`${runners['windows-arm64'] ?? 'windows-11-arm'}\`, from the php.net source release (with the
+backports, where the line has them) and php.net's arm64 dependencies, by the
+same php-windows-builder. php-src supports Windows arm64 from 8.2; for 7.4,
+8.0 and 8.1, pv backports that support (\`build/windows/arm64/\`). Where a
+version has no arm64 build, pv on Windows on Arm installs the x64 one, which
+runs under emulation.
+
+Either needs the Microsoft Visual C++ Redistributable, as every official PHP
+for Windows does, and has no \`php-fpm\`, \`php-config\` or \`phpize\`.
 
 ## PHP lines
 

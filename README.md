@@ -181,6 +181,7 @@ on macOS) and `pcov` (shared-only, like Xdebug — use `xdebug.mode=coverage`).
 | `linux-arm64` | built on a native runner; treat as newer |
 | `darwin-x86_64` | built on a native runner; treat as newer |
 | `windows-x86_64` | php.net's official build, repackaged; 7.4 → 8.5 |
+| `windows-arm64` | compiled from php.net's source on a native runner; treat as newer |
 
 Linux builds link glibc rather than static musl, because static musl has no
 `dlopen` and therefore no Xdebug. The trade is a glibc floor: binaries need a
@@ -188,23 +189,34 @@ glibc at least as new as the build image's.
 
 ### Windows
 
-PHP for Windows is built by php.net with MSVC, and nothing else builds it
-reliably — so pv does not. Each Windows artifact is php.net's non-thread-safe
-x64 build, verified against the sha256 php.net publishes, with xdebug.org's
-official Xdebug added and verified the same way. Compared with the other
-platforms:
+PHP for Windows is built by php.net with MSVC. `windows-x86_64` is php.net's
+non-thread-safe x64 build, verified against the sha256 php.net publishes, with
+xdebug.org's official Xdebug added and verified the same way. The end-of-life
+lines with security backports (7.4, 8.0, 8.1) are the exception: php.net never
+builds them again, so pv compiles them from the php.net source release with
+the reviewed backports applied, using php.net's own php-windows-builder.
+
+`windows-arm64` is compiled the same way for every line, since php.net
+publishes no arm64 build: php.net's source and arm64 dependencies, built with
+php-windows-builder on a Windows on Arm runner. php-src gained Windows arm64
+support in 8.2; for 7.4, 8.0 and 8.1, pv backports it
+(`build/windows/arm64/`). Where there is no arm64 build of a version, Windows
+on Arm falls back to the x64 one, which runs under emulation.
+
+Compared with the other platforms:
 
 - **Extensions differ.** The set is what php.net ships, enabled to match the
-  list above where it can: apcu, igbinary, imagick, mongodb, msgpack, redis,
-  ssh2, uuid and yaml are not in it, and pcntl and posix do not exist on
-  Windows. Add another by putting its DLL in `bin\ext` and an
-  `extension=` line in `etc/conf.d`.
+  list above where it can, plus apcu, igbinary, imagick, mongodb, msgpack,
+  redis, ssh2 and yaml from PECL: php.net's PECL Windows builds on x64, pinned
+  by sha256, and the same releases compiled in-tree on arm64. arm64 has no
+  imagick or yaml (php.net's arm64 dependencies have no ImageMagick or
+  libyaml), and mongodb needs 8.1. uuid is absent everywhere, and pcntl and
+  posix do not exist on Windows. Add another by putting its DLL in `bin\ext`
+  and an `extension=` line in `etc/conf.d`.
 - **No `php-fpm`, `php-config` or `phpize`.** php.net builds none of them for
   Windows. `php-cgi` is there.
 - **The Microsoft Visual C++ Redistributable** must be installed, as for any
   official PHP on Windows.
-- **x64 only.** php.net publishes no arm64 build; Windows on Arm runs it under
-  emulation.
 
 Shims are `.cmd` files, which `cmd` and PowerShell find through `PATHEXT`, plus
 an `sh` shim of the same name for Git Bash. Where the other platforms say
@@ -268,8 +280,9 @@ verifying that every requested extension is present, that nothing links a
 build-host-only library, and that the tree still works from a directory it has
 never seen. `BUILD-NOTES.md` documents the landmines.
 
-`windows-x86_64` builds nothing: `build/package-php-windows.sh` repackages
-php.net's build, and only runs the result when the host is Windows.
+On Windows, `windows-x86_64` repackages php.net's build with
+`build/package-php-windows.sh`, except for the lines with backports, which
+`build/build-php-windows.sh` compiles, as it does every `windows-arm64` build.
 
 ## Documentation
 
