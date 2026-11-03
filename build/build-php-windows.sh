@@ -132,10 +132,13 @@ if [[ "${ARCH}" == "arm64" ]]; then
     VS="$("${PYTHON}" -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["php"][sys.argv[2]])' \
         "$(cygpath -w "${BUILDER}/config/vs.json")" "${PHP_LINE}" | tr -d '\r')"
     [[ -n "${VS}" ]] || fail "php-windows-builder has no toolset for PHP ${PHP_LINE}"
-    sed -i "s/\[ValidateSet('x86', 'x64')\]/[ValidateSet('x86', 'x64', 'arm64')]/" \
-        "${BUILDER}/public/Invoke-PhpBuild.ps1"
-    grep -q "'arm64'" "${BUILDER}/public/Invoke-PhpBuild.ps1" ||
+    # Fifteen functions validate the architecture, each written out by hand,
+    # and every one of them sits on some path through the build.
+    find "${BUILDER}" -name '*.ps1' -exec \
+        sed -i -E "s/\[ValidateSet\('x86', ?'x64'\)\]/[ValidateSet('x86', 'x64', 'arm64')]/" {} +
+    if grep -rqE "ValidateSet\('x86', ?'x64'\)" "${BUILDER}"; then
         fail "could not teach php-windows-builder the arm64 architecture"
+    fi
     sed -i 's/^\(\s*\)Get-OciSdk -Arch \$Arch/\1if ($Arch -ne '"'"'arm64'"'"') { Get-OciSdk -Arch $Arch }/' \
         "${BUILDER}/private/Add-BuildRequirements.ps1"
     grep -q "arm64" "${BUILDER}/private/Add-BuildRequirements.ps1" ||
