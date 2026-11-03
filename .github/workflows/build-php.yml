@@ -1,19 +1,20 @@
 name: build-php
 
-# One run is one build wave: every (PHP line × platform) pair, packaged,
-# verified, and published to the rolling `runtimes` release with a regenerated
-# manifest.
+# One run is one build wave: the (PHP line × platform) builds that need doing,
+# packaged, verified, and published to the rolling `runtimes` release with a
+# regenerated manifest.
 #
-# Builds are long and macOS runner minutes are the expensive ones, so the spc
-# tree is cached per (line × platform) and a wave can be narrowed with the
-# `lines` and `platforms` inputs.
+# "Need doing" is build/plan.py's call: every build is fingerprinted by its
+# inputs, and one whose fingerprint matches what is already published is left
+# alone. A wave in which nothing upstream or in build/ changed builds nothing,
+# so the weekly schedule costs minutes, and users are not told their PHP has a
+# new build when nothing in it changed. `force` rebuilds regardless.
 #
-# For a first wave on a fresh repository, narrow it deliberately:
-#
-#     lines: 8.3,8.4        platforms: darwin-arm64,linux-x86_64
-#
-# A cold full matrix is 35 jobs and several hours, which is an expensive way
-# to discover a typo in a publish step. Widen once one wave has completed.
+# What does get built starts from cached downloads rather than the network:
+# per platform for the static-php-cli builds, whose sources are the same for
+# every line, and per platform and line for Windows. Whole build trees are not
+# cached: at ~2.6 GB each, three of them filled the repository's 10 GB and
+# evicted everything else.
 
 on:
   workflow_dispatch:
@@ -23,7 +24,11 @@ on:
         default: '7.4,8.0,8.1,8.2,8.3,8.4,8.5'
       platforms:
         description: 'Platforms to build, comma-separated'
-        default: 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64'
+        default: 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64,windows-arm64'
+      force:
+        description: 'Rebuild even what is unchanged'
+        type: boolean
+        default: false
   schedule:
     # Weekly on Saturdays at 06:00 UTC, so a new upstream patch reaches users
     # without anyone asking.
@@ -40,50 +45,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
     steps:
       - uses: actions/checkout@v4
       - id: plan
         env:
           LINES: ${{ inputs.lines || '7.4,8.0,8.1,8.2,8.3,8.4,8.5' }}
-          PLATFORMS: ${{ inputs.platforms || 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64' }}
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os
-          runners = {
-              "darwin-arm64": "macos-14",
-              "darwin-x86_64": "macos-15-intel",
-              "linux-x86_64": "ubuntu-22.04",
-              "linux-arm64": "ubuntu-22.04-arm",
-              # Repackages php.net's build rather than compiling, and runs the
-              # result — which only a Windows runner can do. Lines with
-              # backports are the exception; see runner() below.
-              "windows-x86_64": "windows-latest",
-              # Compiled natively: php.net publishes no arm64 build. Not in the
-              # default platforms until it has been proven by hand.
-              "windows-arm64": "windows-11-arm",
-          }
-          lines = [l.strip() for l in os.environ["LINES"].split(",") if l.strip()]
-          platforms = [p.strip() for p in os.environ["PLATFORMS"].split(",") if p.strip()]
-          unknown = [p for p in platforms if p not in runners]
-          if unknown:
-              raise SystemExit(f"no runner mapped for: {unknown}")
-          def runner(line, platform):
-              # Lines with backports are compiled for Windows with php.net's
-              # php-windows-builder, which supports their vc15/vs16 toolsets
-              # on windows-2022.
-              if platform == "windows-x86_64" and os.path.exists(f"build/backports/php-{line}.list"):
-                  return "windows-2022"
-              return runners[platform]
-          include = [
-              {"line": line, "platform": platform, "runner": runner(line, platform)}
-              for platform in platforms
-              for line in lines
-          ]
-          print("matrix=" + json.dumps({"include": include}))
-          PY
+          PLATFORMS: ${{ inputs.platforms || 'darwin-arm64,darwin-x86_64,linux-x86_64,linux-arm64,windows-x86_64,windows-arm64' }}
+          FORCE: ${{ inputs.force || false }}
+          MANIFEST_URL: https://github.com/${{ github.repository }}/releases/download/${{ env.RUNTIMES_TAG }}/manifest.json
+        run: python3 build/plan.py >> "$GITHUB_OUTPUT"
 
   build:
     needs: plan
+    if: needs.plan.outputs.count != '0'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -97,23 +72,53 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # spc's sources are the same for every line, so its builds share one
+      # download cache per platform; Windows downloads are per line. The key
+      # also carries spc-patches.sh, whose darwin layer leaves its own rebuilt
+      # archives among the downloads.
+      DOWNLOADS_SCOPE: ${{ startsWith(matrix.platform, 'windows-') && format('{0}-{1}', matrix.platform, matrix.line) || matrix.platform }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache the build tree
-        uses: actions/cache@v4
+      - name: Restore downloads
+        id: downloads
+        uses: actions/cache/restore@v4
         with:
-          path: .spc-cache/${{ matrix.line }}-${{ matrix.platform }}
-          key: spc-${{ matrix.platform }}-${{ matrix.line }}-${{ hashFiles('build/*.sh') }}
+          path: .pv-downloads
+          key: downloads-${{ env.DOWNLOADS_SCOPE }}-${{ hashFiles('build/spc-patches.sh') }}-${{ github.run_id }}
           restore-keys: |
-            spc-${{ matrix.platform }}-${{ matrix.line }}-
+            downloads-${{ env.DOWNLOADS_SCOPE }}-${{ hashFiles('build/spc-patches.sh') }}-
 
       - name: Build PHP ${{ matrix.line }} for ${{ matrix.platform }}
         env:
           # spc resolves several sources through the GitHub API; without a
           # token, parallel matrix jobs share one IP and hit the 60/hr limit.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ./build/build-php.sh "${{ matrix.line }}" "${{ matrix.platform }}"
+          # The release the wave was planned for, so the build and the
+          # fingerprint recorded for it agree.
+          PV_PHP_VERSION: ${{ matrix.version }}
+        run: |
+          # $PWD rather than github.workspace: on Windows that is a
+          # backslashed path, which bash does not take.
+          PV_DOWNLOAD_CACHE="$PWD/.pv-downloads" ./build/build-php.sh "${{ matrix.line }}" "${{ matrix.platform }}"
+
+      - name: Record the build's inputs
+        run: |
+          for tarball in dist/php-*.tar.gz; do
+            echo "${{ matrix.inputs }}" > "${tarball}.inputs"
+          done
+
+      # Only when the downloads differ from what was restored: the save is
+      # keyed by content, so matrix jobs that end with the same downloads
+      # share one cache entry instead of each writing their own.
+      - name: Save downloads
+        if: always() && steps.downloads.outputs.cache-matched-key != format('downloads-{0}-{1}-{2}', env.DOWNLOADS_SCOPE, hashFiles('build/spc-patches.sh'), hashFiles('.pv-downloads/**', '!.pv-downloads/.lock.json', '!.pv-downloads/.used'))
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: .pv-downloads
+          key: downloads-${{ env.DOWNLOADS_SCOPE }}-${{ hashFiles('build/spc-patches.sh') }}-${{ hashFiles('.pv-downloads/**', '!.pv-downloads/.lock.json', '!.pv-downloads/.used') }}
 
       - name: Summarize
         if: always()
@@ -145,11 +150,18 @@ jobs:
             dist/*.tar.gz
             dist/*.tar.gz.sha256
             dist/*.tar.gz.build
+            dist/*.tar.gz.inputs
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [plan, build]
+    if: needs.plan.outputs.count != '0'
     runs-on: ubuntu-latest
+    # One publish at a time across runs: each merges into the manifest it
+    # downloads, so two at once would each drop what the other added.
+    concurrency:
+      group: publish-runtimes
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -157,7 +169,7 @@ jobs:
           path: incoming
       - run: |
           mkdir -p dist
-          find incoming -type f \( -name '*.tar.gz' -o -name '*.sha256' -o -name '*.build' \) -exec cp {} dist/ \;
+          find incoming -type f \( -name '*.tar.gz' -o -name '*.sha256' -o -name '*.build' -o -name '*.inputs' \) -exec cp {} dist/ \;
           ls -l dist
 
       - name: Ensure the rolling release exists

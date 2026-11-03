@@ -130,6 +130,14 @@ def main() -> int:
         build = read_build(tarball.with_suffix(tarball.suffix + ".build"))
         if build:
             entry["build"] = build
+        # The fingerprint build/plan.py computed for this build's inputs, from
+        # an optional .inputs sidecar. A later wave whose fingerprint matches
+        # leaves this artifact as published rather than rebuilding it.
+        inputs = read_build(tarball.with_suffix(tarball.suffix + ".inputs"))
+        if inputs:
+            if not re.fullmatch(r"[0-9a-f]{64}", inputs):
+                raise SystemExit(f"{tarball.name}.inputs is not a fingerprint: {inputs[:80]!r}")
+            entry["inputs"] = inputs
         # A rebuilt artifact replaces the published one for that platform,
         # which is how a fixed build reaches machines that already installed
         # the broken one: the recorded hash no longer matches and pv reinstalls.

@@ -53,6 +53,8 @@ XDEBUG_INDEX="${PV_XDEBUG_INDEX:-https://xdebug.org/download/historical}"
 XDEBUG_FILES="${PV_XDEBUG_FILES:-https://xdebug.org/files}"
 
 fail() { echo "error: $*" >&2; exit 1; }
+# shellcheck source=build/cached-download.sh
+source "${SCRIPT_DIR}/cached-download.sh"
 
 PYTHON=""
 for candidate in python3 python py; do
@@ -86,10 +88,8 @@ for source in json.load(sys.stdin).get("source", []):
         print(source.get("sha256", ""))
 ' "${TARBALL}" | tr -d '\r')"
 [[ "${EXPECTED}" =~ ^[0-9a-f]{64}$ ]] || fail "php.net publishes no sha256 for ${TARBALL}"
-curl -fsSL --retry 3 -o "${WORK}/${TARBALL}" "https://www.php.net/distributions/${TARBALL}" ||
-    fail "could not download ${TARBALL}"
-actual="$(sha256sum "${WORK}/${TARBALL}" | awk '{print $1}')"
-[[ "${actual}" == "${EXPECTED}" ]] || fail "checksum mismatch for ${TARBALL} (expected ${EXPECTED}, got ${actual})"
+cached_download "https://www.php.net/distributions/${TARBALL}" "${WORK}/${TARBALL}" "${EXPECTED}" ||
+    fail "could not fetch a verified ${TARBALL}"
 # Python's tarfile rather than tar: Git for Windows' tar cannot be relied on
 # to have xz behind it.
 "${PYTHON}" -I -c 'import sys, tarfile; tarfile.open(sys.argv[1]).extractall(sys.argv[2], filter="data")' \
@@ -212,11 +212,8 @@ print(candidates[-1], sources[candidates[-1]])
 PY
         fail "xdebug.org lists no stable Xdebug source for PHP ${PHP_LINE}"
     IFS=$' \t\r' read -r XDEBUG_VERSION XDEBUG_SHA256 < "${WORK}/xdebug.txt"
-    curl -fsSL --retry 3 -o "${WORK}/xdebug.tgz" "${XDEBUG_FILES}/xdebug-${XDEBUG_VERSION}.tgz" ||
-        fail "could not download Xdebug ${XDEBUG_VERSION}"
-    actual="$(sha256sum "${WORK}/xdebug.tgz" | awk '{print $1}')"
-    [[ "${actual}" == "${XDEBUG_SHA256}" ]] ||
-        fail "checksum mismatch for xdebug-${XDEBUG_VERSION}.tgz (expected ${XDEBUG_SHA256}, got ${actual})"
+    cached_download "${XDEBUG_FILES}/xdebug-${XDEBUG_VERSION}.tgz" "${WORK}/xdebug-${XDEBUG_VERSION}.tgz" \
+        "${XDEBUG_SHA256}" || fail "could not fetch a verified Xdebug ${XDEBUG_VERSION}"
     mkdir -p "${WORK}/source/php-src/ext/xdebug"
     "${PYTHON}" -I -c '
 import sys, tarfile
@@ -226,7 +223,7 @@ with tarfile.open(sys.argv[1]) as archive:
     for m in members:
         m.name = m.name[len(prefix):]
     archive.extractall(sys.argv[2], members=[m for m in members if m.name], filter="data")
-' "$(cygpath -w "${WORK}/xdebug.tgz")" "$(cygpath -w "${WORK}/source/php-src/ext/xdebug")" "xdebug-${XDEBUG_VERSION}"
+' "$(cygpath -w "${WORK}/xdebug-${XDEBUG_VERSION}.tgz")" "$(cygpath -w "${WORK}/source/php-src/ext/xdebug")" "xdebug-${XDEBUG_VERSION}"
     [[ -f "${WORK}/source/php-src/ext/xdebug/config.w32" ]] || fail "Xdebug ${XDEBUG_VERSION} has no config.w32"
     echo ">>> verified Xdebug ${XDEBUG_VERSION} source; building it in-tree"
 fi

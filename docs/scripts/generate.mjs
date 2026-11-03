@@ -79,11 +79,13 @@ const windowsExtensions = extract(
   .split(/\s+/)
   .filter(Boolean);
 
+const planner = readFileSync(join(repo, 'build', 'plan.py'), 'utf8');
 const runners = Object.fromEntries(
-  [...workflow.matchAll(/"([a-z0-9_]+-[a-z0-9_]+)": "([^"]+)"/g)].map((m) => [
-    m[1],
-    m[2],
-  ]),
+  [
+    ...extract(/^RUNNERS = \{([\s\S]*?)^\}/m, planner, 'RUNNERS in build/plan.py').matchAll(
+      /"([a-z0-9_]+-[a-z0-9_]+)": "([^"]+)"/g,
+    ),
+  ].map((m) => [m[1], m[2]]),
 );
 
 const banner = `---

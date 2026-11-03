@@ -56,6 +56,8 @@ PECL_FILES="${PV_PECL_FILES:-https://downloads.php.net/~windows/pecl/releases}"
 PV_PREFIX_PLACEHOLDER="@PV_PREFIX@"
 
 fail() { echo "error: $*" >&2; exit 1; }
+# shellcheck source=build/cached-download.sh
+source "${SCRIPT_DIR}/cached-download.sh"
 
 # The first interpreter that actually runs. On Windows, python3 can be a
 # placeholder that only offers to open the Microsoft Store.
@@ -163,11 +165,8 @@ fi
 
 # --- Fetch and verify -----------------------------------------------------
 echo ">>> fetching ${ZIP_NAME}"
-curl -fsSL --retry 3 -o "${STAGE_DIR}/${ZIP_NAME}" "${DOWNLOADS}/${ZIP_NAME}" ||
-    fail "could not download ${DOWNLOADS}/${ZIP_NAME}"
-actual="$(sha256_of "${STAGE_DIR}/${ZIP_NAME}")"
-[[ "${actual}" == "${ZIP_SHA256}" ]] ||
-    fail "checksum mismatch for ${ZIP_NAME} (expected ${ZIP_SHA256}, got ${actual})"
+cached_download "${DOWNLOADS}/${ZIP_NAME}" "${STAGE_DIR}/${ZIP_NAME}" "${ZIP_SHA256}" ||
+    fail "could not fetch a verified ${ZIP_NAME}"
 echo ">>> verified ${ZIP_NAME}"
 
 fi
@@ -244,11 +243,8 @@ PY
 IFS=$' \t\r' read -r XDEBUG_VERSION XDEBUG_FILE XDEBUG_SHA256 < "${STAGE_DIR}/xdebug.txt"
 
 echo ">>> fetching ${XDEBUG_FILE}"
-curl -fsSL --retry 3 -o "${STAGE_DIR}/${XDEBUG_FILE}" "${XDEBUG_FILES}/${XDEBUG_FILE}" ||
-    fail "could not download ${XDEBUG_FILES}/${XDEBUG_FILE}"
-actual="$(sha256_of "${STAGE_DIR}/${XDEBUG_FILE}")"
-[[ "${actual}" == "${XDEBUG_SHA256}" ]] ||
-    fail "checksum mismatch for ${XDEBUG_FILE} (expected ${XDEBUG_SHA256}, got ${actual})"
+cached_download "${XDEBUG_FILES}/${XDEBUG_FILE}" "${STAGE_DIR}/${XDEBUG_FILE}" "${XDEBUG_SHA256}" ||
+    fail "could not fetch a verified ${XDEBUG_FILE}"
 echo ">>> verified ${XDEBUG_FILE}"
 # The name `zend_extension=xdebug` resolves to, inside extension_dir.
 cp "${STAGE_DIR}/${XDEBUG_FILE}" "${TREE}/bin/ext/php_xdebug.dll"
@@ -274,11 +270,8 @@ while IFS=$' \t\r' read -r p_ext p_version p_line p_compiler p_arch p_sha256; do
     [[ -z "${p_ext}" || "${p_ext}" == \#* ]] && continue
     [[ "${p_line}" == "${PHP_LINE}" && "${p_compiler}" == "${COMPILER}" && "${p_arch}" == "${ARCH}" ]] || continue
     p_zip="php_${p_ext}-${p_version}-${p_line}-nts-${p_compiler}-${p_arch}.zip"
-    curl -fsSL --retry 3 -o "${STAGE_DIR}/${p_zip}" "${PECL_FILES}/${p_ext}/${p_version}/${p_zip}" ||
-        fail "could not download ${p_zip}"
-    actual="$(sha256_of "${STAGE_DIR}/${p_zip}")"
-    [[ "${actual}" == "${p_sha256}" ]] ||
-        fail "${p_zip} does not match build/windows/pecl.lock (expected ${p_sha256}, got ${actual})"
+    cached_download "${PECL_FILES}/${p_ext}/${p_version}/${p_zip}" "${STAGE_DIR}/${p_zip}" "${p_sha256}" ||
+        fail "could not fetch ${p_zip} matching build/windows/pecl.lock"
     mkdir -p "${STAGE_DIR}/pecl-${p_ext}"
     unzip -q -o "${STAGE_DIR}/${p_zip}" -d "${STAGE_DIR}/pecl-${p_ext}"
     [[ -f "${STAGE_DIR}/pecl-${p_ext}/php_${p_ext}.dll" ]] || fail "${p_zip} has no php_${p_ext}.dll"
@@ -448,4 +441,5 @@ mv "${STAGE_DIR}/${TARBALL}" "${DIST_DIR}/${TARBALL}"
 # Which build of this version it is, for the manifest's `build` field.
 echo "${BUILD}" > "${DIST_DIR}/${TARBALL}.build"
 
+prune_download_cache
 echo "built dist/${TARBALL} ($(du -h "${DIST_DIR}/${TARBALL}" | awk '{print $1}'))"

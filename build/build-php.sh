@@ -200,7 +200,19 @@ if [[ "$(shasum -a 256 "$(command -v spc 2>/dev/null || echo /nonexistent)" 2>/d
     install_spc
 fi
 
-mkdir -p "${SPC_DIR}/downloads"
+# PV_DOWNLOAD_CACHE: a download directory shared by every line built for this
+# platform, which CI keeps between waves. Library and extension sources are
+# the same for every line, and so are the pre-built archives the darwin layer
+# rebuilds from source, so one wave's downloads serve the next. What differs
+# per line, php-src and Xdebug, is always fetched afresh and pruned after.
+mkdir -p "${SPC_DIR}"
+if [[ -n "${PV_DOWNLOAD_CACHE:-}" ]]; then
+    mkdir -p "${PV_DOWNLOAD_CACHE}"
+    rm -rf "${SPC_DIR}/downloads"
+    ln -s "${PV_DOWNLOAD_CACHE}" "${SPC_DIR}/downloads"
+else
+    mkdir -p "${SPC_DIR}/downloads"
+fi
 cd "${SPC_DIR}"
 
 # spc resolves several sources through the GitHub API, which rate-limits
@@ -214,18 +226,20 @@ fi
 # Ask for a specific patch rather than "newest in the line", skipping releases
 # younger than a day: that window is when a yanked or compromised release gets
 # picked up, and waiting it out costs nothing.
-PHP_TARGET="$(python3 "${SCRIPT_DIR}/resolve-php-version.py" "${PHP_LINE}")"
+# PV_PHP_VERSION, when set, is the release the wave was planned for, so the
+# build and its recorded fingerprint cannot disagree about it.
+PHP_TARGET="${PV_PHP_VERSION:-$(python3 "${SCRIPT_DIR}/resolve-php-version.py" "${PHP_LINE}")}"
 echo ">>> resolving sources for PHP ${PHP_TARGET}"
-# php-src is always re-fetched: spc treats any cached php-src as satisfying
-# --with-php, so a build tree restored from the previous wave silently
-# rebuilds the previous patch release.
+# php-src and Xdebug are always re-fetched: spc treats any cached copy as
+# satisfying the request, so a download cache filled by another line would
+# silently build that line's php-src, or its pinned Xdebug, into this one.
 attempts=0
 until spc download \
     --with-php="${PHP_TARGET}" \
     --for-extensions="${EXTENSIONS}${SHARED_EXTENSIONS:+,${SHARED_EXTENSIONS}}" \
     ${EXTRA_LIBS:+--for-libs="${EXTRA_LIBS}"} \
     ${XDEBUG_URL:+--custom-url="xdebug:${XDEBUG_URL}"} \
-    --ignore-cache-sources="php-src${XDEBUG_URL:+,xdebug}"
+    --ignore-cache-sources="php-src,xdebug"
 do
     attempts=$((attempts + 1))
     if [[ "${attempts}" -ge 4 ]]; then
@@ -245,7 +259,7 @@ fi
 
 if [[ "${PLATFORM}" == linux-* && "$(id -u)" -ne 0 ]]; then
     sudo -E spc doctor --auto-fix
-    sudo chown -R "$(id -u):$(id -g)" "${SPC_DIR}"
+    sudo chown -R "$(id -u):$(id -g)" "${SPC_DIR}" ${PV_DOWNLOAD_CACHE:+"${PV_DOWNLOAD_CACHE}"}
 else
     spc doctor --auto-fix
 fi
@@ -286,6 +300,12 @@ echo ">>> building PHP ${PHP_TARGET} with: ${EXTENSIONS}"
 spc build "${EXTENSIONS}" --build-cli --build-fpm --rebuild \
     ${EXTRA_LIBS:+--with-libs="${EXTRA_LIBS}"} \
     ${SHARED_EXTENSIONS:+--build-shared="${SHARED_EXTENSIONS}"}
+
+# Keep the shared download cache the same whichever line ran last: php-src and
+# Xdebug are per line, and fetched afresh every build anyway.
+if [[ -n "${PV_DOWNLOAD_CACHE:-}" ]]; then
+    rm -rf "${PV_DOWNLOAD_CACHE}"/php-[0-9]*.tar.* "${PV_DOWNLOAD_CACHE}"/*xdebug*
+fi
 
 PHP_BIN="${SPC_DIR}/buildroot/bin/php"
 FPM_BIN="${SPC_DIR}/buildroot/bin/php-fpm"
