@@ -42,12 +42,17 @@
     if ($PSVersionTable.PSEdition -eq 'Core' -and -not $IsWindows) {
         Fail 'this installer is for Windows — use install.sh on macOS and Linux'
     }
-    # Windows on Arm runs x64 programs under emulation, and there is no arm64
-    # PHP for Windows to install anyway.
-    switch ($env:PROCESSOR_ARCHITECTURE) {
-        'AMD64' { }
-        'ARM64' { Write-Host 'pv install: this is Arm — pv and PHP run under x64 emulation' }
-        default { Fail "unsupported architecture $($env:PROCESSOR_ARCHITECTURE) — pv builds for x64" }
+    # The machine's own architecture, from the registry: an x64 PowerShell
+    # running under emulation on Windows on Arm reports AMD64 in its own
+    # environment. On Arm, pv runs natively and installs native PHP where
+    # there is one, and the x64 build, under emulation, where there is not.
+    $machineArch = (Get-ItemProperty -ErrorAction SilentlyContinue `
+        'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
+    if (-not $machineArch) { $machineArch = $env:PROCESSOR_ARCHITECTURE }
+    switch ($machineArch) {
+        'AMD64' { $platform = 'windows-x86_64' }
+        'ARM64' { $platform = 'windows-arm64' }
+        default { Fail "unsupported architecture $machineArch — pv builds for x64 and arm64" }
     }
     if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) {
         Fail 'tar.exe is required (it ships with Windows 10 1803 and later)'
@@ -55,7 +60,7 @@
 
     # The unversioned name is published by the release workflow so this script
     # needs no way to discover the current version.
-    $archive = 'pv-windows-x86_64.tar.gz'
+    $archive = "pv-$platform.tar.gz"
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("pv-install-" + [Guid]::NewGuid())
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
@@ -63,7 +68,16 @@
         try {
             Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$archive" -OutFile (Join-Path $tmp $archive)
         } catch {
-            Fail "could not download $baseUrl/$archive"
+            # A release from before pv built for arm64 has only the x64 pv,
+            # which Windows on Arm runs under emulation.
+            if ($platform -ne 'windows-arm64') { Fail "could not download $baseUrl/$archive" }
+            Write-Host 'pv install: no arm64 pv in this release — installing the x64 one, which runs under emulation'
+            $archive = 'pv-windows-x86_64.tar.gz'
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$archive" -OutFile (Join-Path $tmp $archive)
+            } catch {
+                Fail "could not download $baseUrl/$archive"
+            }
         }
         try {
             Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/$archive.sha256" -OutFile (Join-Path $tmp "$archive.sha256")

@@ -1,0 +1,6 @@
+# pv.exe for Windows on Arm is built with the msvc target, there being no
+# windows-gnu one for arm64. Linking the C runtime statically keeps it the
+# single file the x64 build is, with no Visual C++ Redistributable to install
+# before pv can run.
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

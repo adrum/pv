@@ -43,6 +43,13 @@ jobs:
             runner: windows-latest
             target: x86_64-pc-windows-gnu
             exe: .exe
+          # There is no windows-gnu target for arm64. msvc with the C runtime
+          # linked statically (.cargo/config.toml) keeps pv.exe a single file
+          # all the same.
+          - platform: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            exe: .exe
     runs-on: ${{ matrix.runner }}
     # A retired or unavailable runner label never gets assigned, and the
     # default six-hour timeout would hold the publish job behind it. Fail in
