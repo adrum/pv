@@ -132,6 +132,27 @@ if [[ "${ARCH}" == "arm64" ]]; then
     VS="$("${PYTHON}" -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["php"][sys.argv[2]])' \
         "$(cygpath -w "${BUILDER}/config/vs.json")" "${PHP_LINE}" | tr -d '\r')"
     [[ -n "${VS}" ]] || fail "php-windows-builder has no toolset for PHP ${PHP_LINE}"
+    # windows-11-arm has Visual Studio 2022 only, and php.net publishes arm64
+    # dependencies for 8.2 and 8.3 under vs16 alone. MSVC 2015-2022 are binary
+    # compatible and a newer linker takes older libraries, and on arm64 PHP and
+    # every extension are compiled together here, so build with vs17 against
+    # the vs16 dependency set.
+    export PV_DEPS_VS=""
+    if [[ "${VS}" == "vs16" ]]; then
+        PV_DEPS_VS="vs16"
+        VS="vs17"
+        "${PYTHON}" -I -c '
+import json, sys
+path, line = sys.argv[1], sys.argv[2]
+config = json.load(open(path))
+config["php"][line] = "vs17"
+json.dump(config, open(path, "w"), indent=2)
+' "$(cygpath -w "${BUILDER}/config/vs.json")" "${PHP_LINE}"
+        sed -i 's/^\(\s*\)process {/\1process {\n\1    if ($env:PV_DEPS_VS) { $VsVersion = $env:PV_DEPS_VS }/' \
+            "${BUILDER}/private/Add-PhpDeps.ps1"
+        grep -q 'PV_DEPS_VS' "${BUILDER}/private/Add-PhpDeps.ps1" ||
+            fail "could not point php-windows-builder at the vs16 arm64 dependencies"
+    fi
     # Fifteen functions validate the architecture, each written out by hand,
     # and every one of them sits on some path through the build.
     find "${BUILDER}" -name '*.ps1' -exec \
@@ -159,6 +180,18 @@ if [[ "${ARCH}" == "arm64" ]]; then
         "${WORK}/source/php-src/win32/build/Makefile"
     grep -q '"$(PHP_SIMD_SCALE)" == "NEON"' "${WORK}/source/php-src/win32/build/Makefile" ||
         fail "could not stop the arm64 snapshot being named -NEON"
+
+    # bcmath's xsse.h emulates SSE with NEON for arm64, MSVC included, but
+    # passes braced initializers containing commas into vreinterpretq_*(),
+    # which MSVC's arm_neon.h defines as macros: 8.5 fails with "too many
+    # arguments for function-like macro invocation". Keep that emulation to
+    # GCC and Clang, which leaves MSVC arm64 on bcmath's scalar code, as any
+    # target without SIMD is. Lines without the header are untouched.
+    XSSE="${WORK}/source/php-src/ext/bcmath/libbcmath/src/xsse.h"
+    if [[ -f "${XSSE}" ]] && grep -q 'defined(__aarch64__) || defined(_M_ARM64)' "${XSSE}"; then
+        sed -i 's/defined(__aarch64__) || defined(_M_ARM64)/defined(__aarch64__)/g' "${XSSE}"
+        echo ">>> limited bcmath's NEON emulation to GCC and Clang"
+    fi
 
     # The newest Xdebug that xdebug.org itself builds for this line, from source.
     curl -fsSL --retry 3 -o "${WORK}/xdebug.html" "${XDEBUG_INDEX}" || fail "could not fetch ${XDEBUG_INDEX}"
