@@ -195,6 +195,14 @@ case "${PHP_LINE}" in
             darwin-*) export SPC_MICRO_PATCHES="macos_iconv_84" ;;
             linux-*)  export SPC_MICRO_PATCHES="disable_huge_page_84" ;;
         esac
+        # 8.6's configure rejects libtool's --with-pic, which spc's Linux
+        # configure line ends with: "The Libtool --with-pic/--without-pic
+        # configure option is obsolete. Use --enable-pic/--disable-pic
+        # instead." spc's own line otherwise, as its env.ini leaves a value
+        # already in the environment alone.
+        if [[ "${PLATFORM}" == linux-* ]]; then
+            export SPC_CMD_PREFIX_PHP_CONFIGURE="./configure --prefix= --with-valgrind=no --disable-shared --enable-static --disable-all --disable-phpdbg --enable-pic"
+        fi
         ;;
 esac
 
