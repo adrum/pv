@@ -178,6 +178,11 @@ case "${PHP_LINE}" in
         SHARED_EXTENSIONS="${SHARED_EXTENSIONS#,}"
         SHARED_EXTENSIONS="${SHARED_EXTENSIONS%,}"
         XDEBUG_URL=""
+        # APCu 5.1.28, its newest release, does not compile against 8.6
+        # (XtOffsetOf and php_verror's params argument are gone). Its master
+        # has the fixes, but 5.1.29 is unreleased, so 8.6 ships without APCu
+        # until it is out, as it does without an alpha Xdebug.
+        strip_ext apcu
         # spc 2.8.6 patches phpmicro's sources into php-src whether or not
         # micro is built, picking each patch's series for the line from 8.0
         # to 8.5. 8.6 is not in its list, and PHP reads the failed lookup as
