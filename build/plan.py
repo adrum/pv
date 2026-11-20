@@ -49,7 +49,7 @@ def _load_resolver():
 _resolve = _load_resolver()
 
 RUNNERS = {
-    "darwin-arm64": "macos-14",
+    "darwin-arm64": "macos-15",
     "darwin-x86_64": "macos-15-intel",
     "linux-x86_64": "ubuntu-22.04",
     "linux-arm64": "ubuntu-22.04-arm",
