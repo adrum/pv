@@ -51,6 +51,13 @@ XDEBUG_FILES="${PV_XDEBUG_FILES:-https://xdebug.org/files}"
 # php.net's PECL Windows builds, pinned by sha256 in build/windows/pecl.lock.
 PECL_FILES="${PV_PECL_FILES:-https://downloads.php.net/~windows/pecl/releases}"
 
+# Lines that ship without Xdebug because no stable release supports them yet
+# (Xdebug 3.6, which adds 8.6, is still in alpha). Every other line still
+# fails without one; drop a line from here once xdebug.org builds it.
+NO_XDEBUG_LINES="8.6"
+WITH_XDEBUG=1
+[[ " ${NO_XDEBUG_LINES} " == *" ${PHP_LINE} "* ]] && WITH_XDEBUG=0
+
 # The same placeholder the other platforms ship; `pv install` substitutes the
 # directory the tree actually landed in.
 PV_PREFIX_PLACEHOLDER="@PV_PREFIX@"
@@ -216,6 +223,8 @@ if [[ -n "${PV_WINDOWS_XDEBUG_VERSION:-}" ]]; then
     XDEBUG_ORIGIN="Xdebug ${XDEBUG_VERSION}, built with PHP from xdebug.org's source release:
 ${XDEBUG_FILES}/xdebug-${XDEBUG_VERSION}.tgz"
     echo ">>> using the in-tree Xdebug ${XDEBUG_VERSION}"
+elif [[ "${WITH_XDEBUG}" -eq 0 ]]; then
+    echo ">>> note: no stable Xdebug supports PHP ${PHP_LINE} yet — packaging it without one"
 else
 curl -fsSL --retry 3 -o "${STAGE_DIR}/xdebug.html" "${XDEBUG_INDEX}" ||
     fail "could not fetch ${XDEBUG_INDEX}"
@@ -343,9 +352,11 @@ EOF
     # Off rather than debug, as on every platform: with mode=debug each run
     # reaches for a debug client and warns when none is listening.
     # XDEBUG_MODE=<mode> turns it on for one invocation.
-    echo "zend_extension=xdebug"
-    echo "xdebug.mode = off"
-    echo "xdebug.start_with_request = trigger"
+    if [[ "${WITH_XDEBUG}" -eq 1 ]]; then
+        echo "zend_extension=xdebug"
+        echo "xdebug.mode = off"
+        echo "xdebug.start_with_request = trigger"
+    fi
 } > "${TREE}/etc/php.ini"
 
 # php.net's own license and the notices for what it bundles.
@@ -354,9 +365,11 @@ for notice in license.txt readme-redist-bins.txt; do
 done
 [[ -f "${TREE}/licenses/license.txt" ]] ||
     fail "${ZIP_NAME} carries no license.txt — refusing to ship a binary distribution without it"
-curl -fsSL --retry 3 -o "${TREE}/licenses/xdebug-LICENSE.txt" \
-    "https://raw.githubusercontent.com/xdebug/xdebug/${XDEBUG_VERSION}/LICENSE" ||
-    fail "could not fetch Xdebug ${XDEBUG_VERSION}'s license — refusing to ship it without one"
+if [[ "${WITH_XDEBUG}" -eq 1 ]]; then
+    curl -fsSL --retry 3 -o "${TREE}/licenses/xdebug-LICENSE.txt" \
+        "https://raw.githubusercontent.com/xdebug/xdebug/${XDEBUG_VERSION}/LICENSE" ||
+        fail "could not fetch Xdebug ${XDEBUG_VERSION}'s license — refusing to ship it without one"
+fi
 if [[ -n "${PV_WINDOWS_ZIP:-}" ]]; then
     ORIGIN="Built by pv from the php.net source release, using php.net's
 php-windows-builder and its ${COMPILER} dependencies:
@@ -386,14 +399,20 @@ releases (their licenses are beside this file):
 ${INTREE_ORIGIN}
 "
 fi
+if [[ "${WITH_XDEBUG}" -eq 1 ]]; then
+    ADDED="Added to it: etc/, this directory, and bin/ext/php_xdebug.dll —
+${XDEBUG_ORIGIN}
+Xdebug is distributed under the Xdebug License (xdebug-LICENSE.txt)."
+else
+    ADDED="Added to it: etc/ and this directory. No Xdebug: no stable release
+supports PHP ${PHP_LINE} yet."
+fi
 cat > "${TREE}/licenses/README.txt" <<EOF
 PHP ${PHP_VERSION} for ${PLATFORM}.
 
 ${ORIGIN}
 
-Added to it: etc/, this directory, and bin/ext/php_xdebug.dll —
-${XDEBUG_ORIGIN}
-Xdebug is distributed under the Xdebug License (xdebug-LICENSE.txt).
+${ADDED}
 ${PECL_SECTION}
 The build needs the Microsoft Visual C++ Redistributable, as every official
 PHP for Windows does.
@@ -442,12 +461,15 @@ PY
     if [[ "${OPCACHE_DLL}" -eq 1 ]]; then
         grep -qx "zend opcache" <<<"${modules}" || missing+=("opcache")
     fi
-    grep -qx "xdebug" <<<"${modules}" || missing+=("xdebug")
+    if [[ "${WITH_XDEBUG}" -eq 1 ]]; then
+        grep -qx "xdebug" <<<"${modules}" || missing+=("xdebug")
+    fi
     [[ ${#missing[@]} -eq 0 ]] || fail "php -m is missing enabled extensions: ${missing[*]}"
     echo ">>> verified: php ${reported} runs relocated with ${#ENABLED[@]} extensions loaded"
 else
-    for required in bin/php.exe bin/ext/php_xdebug.dll etc/php.ini licenses/license.txt \
-                    licenses/xdebug-LICENSE.txt; do
+    required_files=(bin/php.exe etc/php.ini licenses/license.txt)
+    [[ "${WITH_XDEBUG}" -eq 1 ]] && required_files+=(bin/ext/php_xdebug.dll licenses/xdebug-LICENSE.txt)
+    for required in "${required_files[@]}"; do
         [[ -e "${TREE}/${required}" ]] || fail "the packaged tree has no ${required}"
     done
     echo ">>> note: not a Windows host, so the packaged php.exe was NOT run." >&2
