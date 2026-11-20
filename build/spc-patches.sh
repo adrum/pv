@@ -555,10 +555,13 @@ guard_stale_buildroot() {
     # (libedit missing terminfo, say) and nothing in that message points at
     # the real cause. Detect it by its own recorded paths, not by where we
     # think it came from.
+    # grep finding nothing is the clean case, not a failure: under pipefail
+    # its exit 1 would fail the assignment, and set -e would end the build
+    # without a word.
     local foreign
-    foreign="$(grep -rlE '(^|[^A-Za-z0-9_])/[^ ]*\.spc-cache/' \
-                    "${SPC_DIR}/buildroot/lib/pkgconfig" \
-                    "${SPC_DIR}/buildroot/lib" 2>/dev/null \
+    foreign="$( { grep -rlE '(^|[^A-Za-z0-9_])/[^ ]*\.spc-cache/' \
+                      "${SPC_DIR}/buildroot/lib/pkgconfig" \
+                      "${SPC_DIR}/buildroot/lib" 2>/dev/null || true; } \
                | while read -r f; do
                      grep -qF "${SPC_DIR}" "${f}" || { echo "${f}"; break; }
                  done)"
