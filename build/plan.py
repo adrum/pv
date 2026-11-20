@@ -73,9 +73,17 @@ def arm64_port(line: str) -> str | None:
     return path if (ROOT / path).exists() else None
 
 
+# Lines php-windows-builder builds with a toolset windows-11-arm does not
+# have: 8.6 takes vs18, Visual Studio 2026, and the runner carries 2022 only.
+# Like the lines before 8.2, they run their x64 build under emulation there.
+WINDOWS_ARM64_NO_TOOLSET = {"8.6"}
+
+
 def buildable(line: str, platform: str) -> bool:
     if platform != "windows-arm64":
         return True
+    if line in WINDOWS_ARM64_NO_TOOLSET:
+        return False
     return tuple(map(int, line.split("."))) >= WINDOWS_ARM64_NATIVE or arm64_port(line) is not None
 
 # The files each kind of build reads. A change to one rebuilds only the

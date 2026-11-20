@@ -158,6 +158,31 @@ case "${PHP_LINE}" in
         # Xdebug 3.5 dropped 8.0, not 3.4 — pin the last 3.4.
         XDEBUG_URL="https://xdebug.org/files/xdebug-3.4.7.tgz"
         ;;
+    8.6)
+        # No stable Xdebug supports 8.6 yet: 3.5's configure stops at 8.5, and
+        # 3.6, the series that adds 8.6, is still in alpha. Ship 8.6 without a
+        # debugger rather than ship an alpha; restore it, pinned like the
+        # default above, when 3.6 goes stable.
+        # Bash, not grep -v: grep exits 1 when it removes every line, and
+        # xdebug is often the only shared extension.
+        SHARED_EXTENSIONS=",${SHARED_EXTENSIONS},"
+        SHARED_EXTENSIONS="${SHARED_EXTENSIONS//,xdebug,/,}"
+        SHARED_EXTENSIONS="${SHARED_EXTENSIONS#,}"
+        SHARED_EXTENSIONS="${SHARED_EXTENSIONS%,}"
+        XDEBUG_URL=""
+        # spc 2.8.6 patches phpmicro's sources into php-src whether or not
+        # micro is built, picking each patch's series for the line from 8.0
+        # to 8.5. 8.6 is not in its list, and PHP reads the failed lookup as
+        # index 0, so it applies the 8.0 series, which does not apply. Name
+        # the files instead: macos_iconv_84 and disable_huge_page_84 apply to
+        # 8.6 as they are, and both change configure for every SAPI. Leave
+        # out cli_checks, which only teaches cli-only checks to accept micro,
+        # a SAPI pv does not build, and whose 8.5 series no longer applies.
+        case "${PLATFORM}" in
+            darwin-*) export SPC_MICRO_PATCHES="macos_iconv_84" ;;
+            linux-*)  export SPC_MICRO_PATCHES="disable_huge_page_84" ;;
+        esac
+        ;;
 esac
 
 # --- spc ------------------------------------------------------------------

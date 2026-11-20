@@ -34,7 +34,7 @@ BASE = "https://downloads.php.net/~windows/pecl/releases"
 
 # The compiler php.net builds each line with: a DLL from another one refuses
 # to load.
-LINES = {"7.4": "vc15", "8.0": "vs16", "8.1": "vs16", "8.2": "vs16", "8.3": "vs16", "8.4": "vs17", "8.5": "vs17"}
+LINES = {"7.4": "vc15", "8.0": "vs16", "8.1": "vs16", "8.2": "vs16", "8.3": "vs16", "8.4": "vs17", "8.5": "vs17", "8.6": "vs18"}
 
 # The PECL extensions the other platforms build. uuid is not here: it wraps
 # libuuid, and there is no Windows build of it.
