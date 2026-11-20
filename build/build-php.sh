@@ -117,6 +117,10 @@ EXTRA_LIBS="${PHP_EXTRA_LIBS:-onig,libavif,nghttp2}"
 # xdebug.org's stable 3.5.3. Lines the current series dropped pin older below.
 XDEBUG_URL="https://xdebug.org/files/xdebug-3.5.3.tgz"
 
+# ssh2 is left to spc's newest release, except where a line needs an older
+# one; those pin it below.
+SSH2_URL=""
+
 strip_ext() {
     EXTENSIONS="$(echo "${EXTENSIONS}" | tr ',' '\n' | grep -v "^$1$" | paste -sd, -)"
 }
@@ -143,6 +147,10 @@ case "${PHP_LINE}" in
         # probe as "no" makes it fall through to C11; pinning an explicit C11
         # flag stops a future compiler default from silently taking over.
         export SPC_EXTRA_PHP_VARS="${SPC_EXTRA_PHP_VARS:+${SPC_EXTRA_PHP_VARS} }ac_cv_prog_cc_c23=no ac_cv_prog_cc_c11=-std=gnu11"
+        # ssh2 1.6 (November 2026) includes Zend/zend_attributes.h, which
+        # PHP has only from 8.0, and spc always resolves the newest release.
+        # 1.4.1 is the last that builds against 7.x.
+        SSH2_URL="https://pecl.php.net/get/ssh2-1.4.1.tgz"
         ;;
     8.1)
         # Xdebug 3.5 supports 8.2-8.5 only, and spc always resolves the newest
@@ -255,16 +263,18 @@ fi
 # build and its recorded fingerprint cannot disagree about it.
 PHP_TARGET="${PV_PHP_VERSION:-$(python3 "${SCRIPT_DIR}/resolve-php-version.py" "${PHP_LINE}")}"
 echo ">>> resolving sources for PHP ${PHP_TARGET}"
-# php-src and Xdebug are always re-fetched: spc treats any cached copy as
-# satisfying the request, so a download cache filled by another line would
-# silently build that line's php-src, or its pinned Xdebug, into this one.
+# php-src, Xdebug and ssh2 are always re-fetched: spc treats any cached copy
+# as satisfying the request, so a download cache filled by another line would
+# silently build that line's php-src, or its pinned Xdebug or ssh2, into this
+# one.
 attempts=0
 until spc download \
     --with-php="${PHP_TARGET}" \
     --for-extensions="${EXTENSIONS}${SHARED_EXTENSIONS:+,${SHARED_EXTENSIONS}}" \
     ${EXTRA_LIBS:+--for-libs="${EXTRA_LIBS}"} \
     ${XDEBUG_URL:+--custom-url="xdebug:${XDEBUG_URL}"} \
-    --ignore-cache-sources="php-src,xdebug"
+    ${SSH2_URL:+--custom-url="ext-ssh2:${SSH2_URL}"} \
+    --ignore-cache-sources="php-src,xdebug,ext-ssh2"
 do
     attempts=$((attempts + 1))
     if [[ "${attempts}" -ge 4 ]]; then
@@ -329,7 +339,7 @@ spc build "${EXTENSIONS}" --build-cli --build-fpm --rebuild \
 # Keep the shared download cache the same whichever line ran last: php-src and
 # Xdebug are per line, and fetched afresh every build anyway.
 if [[ -n "${PV_DOWNLOAD_CACHE:-}" ]]; then
-    rm -rf "${PV_DOWNLOAD_CACHE}"/php-[0-9]*.tar.* "${PV_DOWNLOAD_CACHE}"/*xdebug*
+    rm -rf "${PV_DOWNLOAD_CACHE}"/php-[0-9]*.tar.* "${PV_DOWNLOAD_CACHE}"/*xdebug* "${PV_DOWNLOAD_CACHE}"/*ssh2*
 fi
 
 PHP_BIN="${SPC_DIR}/buildroot/bin/php"
