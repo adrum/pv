@@ -152,7 +152,8 @@ tokenizer uuid xml xmlreader xmlwriter xsl yaml zip zlib
 
 Plus **Xdebug**, shipped as a shared `lib/xdebug.so` because it cannot be
 linked statically. It is loaded with `xdebug.mode = off`; set `XDEBUG_MODE` for
-a single invocation, which Xdebug honors over any ini value.
+a single invocation, which Xdebug honors over any ini value. PHP 8.6 ships
+without it for now: no stable Xdebug release supports 8.6 yet.
 
 **You can add extensions pv did not bake in.** These builds link their
 dependencies statically but still `dlopen` shared extensions — that is how

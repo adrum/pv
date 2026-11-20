@@ -96,7 +96,28 @@ const peclSource = new Set(
 );
 const peclNotArm64 = pecl.filter((name) => !peclSource.has(name));
 
+// Lines that ship without Xdebug until a stable release supports them.
+const noXdebug = extract(
+  /^NO_XDEBUG_LINES="([^"]*)"/m,
+  windowsScript,
+  'NO_XDEBUG_LINES in build/package-php-windows.sh',
+)
+  .split(/\s+/)
+  .filter(Boolean);
+const noXdebugNote = noXdebug.length
+  ? `\n\nPHP ${noXdebug.join(', ')} ships without Xdebug for now: no stable Xdebug
+release supports it yet, and pv does not ship alphas.`
+  : '';
+
 const planner = readFileSync(join(repo, 'build', 'plan.py'), 'utf8');
+// Lines windows-11-arm has no toolset for, which run x64 there.
+const arm64NoToolset = [
+  ...extract(
+    /^WINDOWS_ARM64_NO_TOOLSET = \{([^}]*)\}/m,
+    planner,
+    'WINDOWS_ARM64_NO_TOOLSET in build/plan.py',
+  ).matchAll(/"([^"]+)"/g),
+].map((m) => m[1]);
 const runners = Object.fromEntries(
   [
     ...extract(/^RUNNERS = \{([\s\S]*?)^\}/m, planner, 'RUNNERS in build/plan.py').matchAll(
@@ -141,7 +162,7 @@ ${shared
     (name) =>
       `- **${name}** — shipped as \`lib/${name}.so\`, because it cannot be linked statically. Loaded with \`xdebug.mode = off\`; set \`XDEBUG_MODE\` to enable it for a single invocation, which Xdebug honors over any ini value.`,
   )
-  .join('\n')}
+  .join('\n')}${noXdebugNote}
 
 ## Not included, deliberately
 
@@ -187,7 +208,8 @@ and none where there is none (mongodb needs 8.1).
 
 And opcache and **xdebug** — on x64, xdebug.org's official build, verified
 against the SHA256 it publishes; on arm64, xdebug.org's source compiled
-in-tree. Either way it is loaded with \`xdebug.mode = off\` exactly as above.
+in-tree. Either way it is loaded with \`xdebug.mode = off\` exactly as above.${noXdebugNote}
+
 There is no \`php-config\` or \`phpize\` on Windows, so an extension is added
 rather than compiled: its DLL in \`bin\\ext\`, and an \`extension=\` line in
 \`etc/conf.d\`.
@@ -228,7 +250,12 @@ php.net publishes no arm64 build, so \`windows-arm64\` is compiled for every
 line on \`${runners['windows-arm64'] ?? 'windows-11-arm'}\`, from the php.net source release (with the
 backports, where the line has them) and php.net's arm64 dependencies, by the
 same php-windows-builder. php-src supports Windows arm64 from 8.2; for 7.4,
-8.0 and 8.1, pv backports that support (\`build/windows/arm64/\`). Where a
+8.0 and 8.1, pv backports that support (\`build/windows/arm64/\`).${
+  arm64NoToolset.length
+    ? ` ${arm64NoToolset.join(', ')} ${arm64NoToolset.length === 1 ? 'is' : 'are'} not built for arm64 yet: php-windows-builder builds ${arm64NoToolset.length === 1 ? 'it' : 'them'} with
+Visual Studio 2026, which the runner does not have.`
+    : ''
+} Where a
 version has no arm64 build, pv on Windows on Arm installs the x64 one, which
 runs under emulation.
 
