@@ -183,6 +183,14 @@ case "${PHP_LINE}" in
         # has the fixes, but 5.1.29 is unreleased, so 8.6 ships without APCu
         # until it is out, as it does without an alpha Xdebug.
         strip_ext apcu
+        # The same for igbinary 3.2.17RC1 (zval_dtor() and
+        # unserialize_callback_func, igbinary/igbinary#408 and #419) and
+        # redis 6.3.0 (zval_dtor(), INI_INT() and more, phpredis#2884, #2888
+        # and #2900): fixed upstream, not released. imagick's breakage is only
+        # two removed aliases, so it is renamed in place instead
+        # (patch_imagick_php86_aliases in spc-patches.sh).
+        strip_ext igbinary
+        strip_ext redis
         # spc 2.8.6 patches phpmicro's sources into php-src whether or not
         # micro is built, picking each patch's series for the line from 8.0
         # to 8.5. 8.6 is not in its list, and PHP reads the failed lookup as
