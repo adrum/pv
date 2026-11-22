@@ -191,6 +191,9 @@ case "${PHP_LINE}" in
         # (patch_imagick_php86_aliases in spc-patches.sh).
         strip_ext igbinary
         strip_ext redis
+        # msgpack 3.0.1 reads PG(unserialize_callback_func) as a char*, and it
+        # is a zend_string in 8.6 (msgpack/msgpack-php#185, unreleased).
+        strip_ext msgpack
         # spc 2.8.6 patches phpmicro's sources into php-src whether or not
         # micro is built, picking each patch's series for the line from 8.0
         # to 8.5. 8.6 is not in its list, and PHP reads the failed lookup as
