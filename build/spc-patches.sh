@@ -895,6 +895,32 @@ apply_debian_backports() {
          "(${relaxed} ignoring whitespace, ${present} already present)"
 }
 
+# imagick 3.8.1, the newest release, calls two aliases PHP 8.6 removed:
+# XtOffsetOf() for C's offsetof(), and zval_dtor() for zval_ptr_dtor_nogc().
+# Both were plain #defines, so the renames compile to exactly what 3.8.1
+# compiles to on earlier lines. They are imagick's own fixes, Imagick/imagick
+# #795 (merged, unreleased) and #768 (open), applied to the release.
+#
+# Fatal both ways: a call left over would fail the build later and less
+# clearly, and finding none at all means imagick has shipped the fix, so this
+# workaround should go rather than keep silently matching nothing.
+patch_imagick_php86_aliases() {
+    local dir="${SPC_DIR}/source/php-src/ext/imagick"
+    [[ -d "${dir}" ]] || return 0
+    local files=("${dir}/imagick.c" "${dir}/imagick_helpers.c" "${dir}/php_imagick_defs.h")
+    if ! grep -qE '\b(XtOffsetOf|zval_dtor)\b' "${files[@]}"; then
+        echo "error: imagick no longer calls XtOffsetOf() or zval_dtor() — it supports" \
+             "PHP 8.6 now; remove patch_imagick_php86_aliases from build/spc-patches.sh" >&2
+        return 1
+    fi
+    perl -pi -e 's/\bXtOffsetOf\(/offsetof(/g; s/\bzval_dtor\s*\(/zval_ptr_dtor_nogc(/g' "${files[@]}"
+    if grep -rnE --include='*.c' --include='*.h' '\b(XtOffsetOf|zval_dtor)\b' "${dir}" >&2; then
+        echo "error: imagick still calls aliases PHP 8.6 removed (above)" >&2
+        return 1
+    fi
+    echo ">>> Renamed imagick's XtOffsetOf() and zval_dtor() calls for PHP 8.6"
+}
+
 arm_legacy_php_buildconf_hook() {
     # PHP 7.4 / 8.0 need several php-src edits to build against a modern
     # toolchain (Xcode 26 clang + libxml2 2.13+ + ICU 77+):
@@ -951,6 +977,12 @@ arm_legacy_php_buildconf_hook() {
         export SPC_DIR
         export SPC_CMD_PREFIX_PHP_BUILDCONF="bash '${_SPC_PATCHES_SELF}' --security-backports && ./buildconf --force"
         echo ">>> Armed post-extract php-src hook for PHP ${line} (security backports)"
+        ;;
+    8.6)
+        # Extensions are extracted with php-src, so imagick is patched here too.
+        export SPC_DIR
+        export SPC_CMD_PREFIX_PHP_BUILDCONF="bash '${_SPC_PATCHES_SELF}' --php86-imagick && ./buildconf --force"
+        echo ">>> Armed post-extract php-src hook for PHP ${line} (imagick 8.6 aliases)"
         ;;
     esac
 }
@@ -1113,6 +1145,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         ;;
     --security-backports)
         apply_debian_backports || exit 1
+        ;;
+    --php86-imagick)
+        patch_imagick_php86_aliases || exit 1
         ;;
     esac
 fi
